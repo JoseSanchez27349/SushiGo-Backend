@@ -107,3 +107,21 @@ sushigo-backend/
 ├── server.js               # Punto de entrada e inicialización del servidor
 ├── package.json            # Scripts de ejecución y dependencias del proyecto
 └── README.md               # Documentación del repositorio
+
+Guia de Instalacion y Ejecucion rapida
+
+# 1. Clonar el repositorio
+git clone [https://github.com/JoseSanchez27349/sushigo-backend.git](https://github.com/JoseSanchez27349/sushigo-backend.git)
+cd sushigo-backend
+
+# 2. Instalar dependencias
+npm install
+
+# 3. Configurar variables de entorno
+cp .env.example .env
+
+# 4. Iniciar en modo desarrollo
+npm run dev
+
+# 5. Ejecutar análisis de código y formato
+npm run lint
