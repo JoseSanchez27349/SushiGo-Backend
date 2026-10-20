@@ -1,17 +1,16 @@
-import express, { Request, Response } from 'express';
+import express from 'express';
+import routes from './routes';
+import { errorHandler } from './middlewares/error.middleware';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
 
-app.get('/api/health', (_req: Request, res: Response) => {
-  res.json({
-    status: 'ok',
-    message: 'API SushiGo funcionando correctamente con TypeScript',
-  });
-});
+app.use('/api', routes);
+
+app.use(errorHandler);
 
 app.listen(PORT, () => {
-  console.log(`🚀 Servidor iniciado en http://localhost:${PORT}`);
+  console.log(`🚀 Servidor SushiGo corriendo en http://localhost:${PORT}`);
 });
