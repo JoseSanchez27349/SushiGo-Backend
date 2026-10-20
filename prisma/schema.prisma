@@ -1,0 +1,349 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ==========================================
+// 1. USUARIOS, ROLES Y MESAS (POS / CLIENTE)
+// ==========================================
+
+model Role {
+  id          Int     @id @default(autoincrement())
+  nombre      String  @unique @db.VarChar(30)
+  descripcion String? @db.VarChar(255)
+
+  usuarios User[]
+
+  @@map("roles")
+}
+
+model User {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  rolId             Int      @map("rol_id")
+  nombre            String   @db.VarChar(50)
+  apellido          String   @db.VarChar(50)
+  telefono          String   @unique @db.VarChar(20)
+  correoElectronico String?  @unique @map("correo_electronico") @db.VarChar(100)
+  contrasenaHash    String?  @map("contrasena_hash") @db.VarChar(255)
+  codigoEmpleado    String?  @unique @map("codigo_empleado") @db.VarChar(4)
+  pinHash           String?  @map("pin_hash") @db.VarChar(255)
+  puntosAcumulados  Int      @default(0) @map("puntos_acumulados")
+  estaActivo        Boolean  @default(true) @map("esta_activo")
+  creadoEn          DateTime @default(now()) @map("creado_en") @db.Timestamptz
+  actualizadoEn     DateTime @updatedAt @map("actualizado_en") @db.Timestamptz
+
+  rol                           Role                @relation(fields: [rolId], references: [id], onDelete: Restrict)
+  direcciones                   UserAddress[]
+  carrito                       Cart?
+  ordenesComoCliente            Order[]             @relation("OrdenCliente")
+  ordenesComoMesero             Order[]             @relation("OrdenMesero")
+  entregasComoRepartidor        Delivery[]          @relation("RepartidorEntrega")
+  tiemposCocinaComoChef         KitchenTime[]       @relation("CocineroTiempo")
+  historialPuntosObtenidos      PointsHistory[]     @relation("ClientePuntos")
+  historialPuntosOtorgados      PointsHistory[]     @relation("RegistradorPuntos")
+  historialReimpresionesPedidas ReprintHistory[]    @relation("SolicitanteReimpresion")
+  movimientosInventario         InventoryMovement[] @relation("UsuarioMovimiento")
+
+  @@index([telefono], name: "idx_usuarios_telefono")
+  @@index([codigoEmpleado], name: "idx_usuarios_codigo_empleado")
+  @@index([correoElectronico], name: "idx_usuarios_correo")
+  @@map("usuarios")
+}
+
+model Table {
+  id         Int    @id @default(autoincrement())
+  numeroMesa String @unique @map("numero_mesa") @db.VarChar(20)
+  capacidad  Int    @default(4)
+  estado     String @default("disponible") @db.VarChar(20)
+
+  ordenes Order[]
+
+  @@map("mesas")
+}
+
+model UserAddress {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  usuarioId        String   @map("usuario_id") @db.Uuid
+  calle            String   @db.VarChar(100)
+  colonia          String   @db.VarChar(100)
+  ciudad           String   @db.VarChar(50)
+  codigoPostal     String   @map("codigo_postal") @db.VarChar(10)
+  notasEntrega     String?  @map("notas_entrega") @db.Text
+  esPredeterminada Boolean  @default(false) @map("es_predeterminada")
+  creadoEn         DateTime @default(now()) @map("creado_en") @db.Timestamptz
+
+  usuario User    @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  ordenes Order[]
+
+  @@map("direcciones_usuario")
+}
+
+// ==========================================
+// 2. CATÁLOGO Y PRODUCTOS
+// ==========================================
+
+model Category {
+  id          Int      @id @default(autoincrement())
+  nombre      String   @unique @db.VarChar(50)
+  slug        String   @unique @db.VarChar(60)
+  descripcion String?  @db.Text
+  estaActiva  Boolean  @default(true) @map("esta_activa")
+  creadoEn    DateTime @default(now()) @map("creado_en") @db.Timestamptz
+
+  productos Product[]
+
+  @@map("categorias")
+}
+
+model Product {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  categoriaId    Int      @map("categoria_id")
+  nombre         String   @db.VarChar(100)
+  descripcion    String?  @db.Text
+  precio         Decimal  @db.Decimal(10, 2)
+  urlImagen      String?  @map("url_imagen") @db.VarChar(255)
+  estaDisponible Boolean  @default(true) @map("esta_disponible")
+  creadoEn       DateTime @default(now()) @map("creado_en") @db.Timestamptz
+  actualizadoEn  DateTime @updatedAt @map("actualizado_en") @db.Timestamptz
+
+  categoria Category    @relation(fields: [categoriaId], references: [id], onDelete: Restrict)
+  recetas   Recipe[]
+  carritos  CartItem[]
+  detalles  OrderItem[]
+
+  @@map("productos")
+}
+
+// ==========================================
+// 3. INVENTARIO Y RECETAS (BOM)
+// ==========================================
+
+model Ingredient {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  nombre        String   @unique @db.VarChar(100)
+  unidadMedida  String   @map("unidad_medida") @db.VarChar(20)
+  stockActual   Decimal  @default(0.000) @map("stock_actual") @db.Decimal(10, 3)
+  stockMinimo   Decimal  @default(0.000) @map("stock_minimo") @db.Decimal(10, 3)
+  costoUnitario Decimal  @default(0.00) @map("costo_unitario") @db.Decimal(10, 2)
+  estaActivo    Boolean  @default(true) @map("esta_activo")
+  creadoEn      DateTime @default(now()) @map("creado_en") @db.Timestamptz
+  actualizadoEn DateTime @updatedAt @map("actualizado_en") @db.Timestamptz
+
+  recetas               Recipe[]
+  movimientosInventario InventoryMovement[]
+
+  @@map("ingredientes")
+}
+
+model Recipe {
+  id                String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  productoId        String  @map("producto_id") @db.Uuid
+  ingredienteId     String  @map("ingrediente_id") @db.Uuid
+  cantidadRequerida Decimal @map("cantidad_requerida") @db.Decimal(10, 3)
+
+  producto    Product    @relation(fields: [productoId], references: [id], onDelete: Cascade)
+  ingrediente Ingredient @relation(fields: [ingredienteId], references: [id], onDelete: Restrict)
+
+  @@unique([productoId, ingredienteId], name: "unica_receta_producto_ingrediente")
+  @@index([productoId], name: "idx_recetas_producto")
+  @@index([ingredienteId], name: "idx_recetas_ingrediente")
+  @@map("recetas")
+}
+
+model InventoryMovement {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ingredienteId  String   @map("ingrediente_id") @db.Uuid
+  usuarioId      String?  @map("usuario_id") @db.Uuid
+  tipoMovimiento String   @map("tipo_movimiento") @db.VarChar(30)
+  cantidad       Decimal  @db.Decimal(10, 3)
+  costoTotal     Decimal? @default(0.00) @map("costo_total") @db.Decimal(10, 2)
+  observaciones  String?  @db.Text
+  creadoEn       DateTime @default(now()) @map("creado_en") @db.Timestamptz
+
+  ingrediente Ingredient @relation(fields: [ingredienteId], references: [id], onDelete: Restrict)
+  usuario     User?      @relation("UsuarioMovimiento", fields: [usuarioId], references: [id], onDelete: SetNull)
+
+  @@index([ingredienteId], name: "idx_movimientos_ingrediente")
+  @@map("movimientos_inventario")
+}
+
+// ==========================================
+// 4. CARRITO DE COMPRAS
+// ==========================================
+
+model Cart {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  usuarioId     String   @unique @map("usuario_id") @db.Uuid
+  creadoEn      DateTime @default(now()) @map("creado_en") @db.Timestamptz
+  actualizadoEn DateTime @updatedAt @map("actualizado_en") @db.Timestamptz
+
+  usuario   User       @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  elementos CartItem[]
+
+  @@map("carritos")
+}
+
+model CartItem {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  carritoId     String   @map("carrito_id") @db.Uuid
+  productoId    String   @map("producto_id") @db.Uuid
+  cantidad      Int
+  creadoEn      DateTime @default(now()) @map("creado_en") @db.Timestamptz
+  actualizadoEn DateTime @updatedAt @map("actualizado_en") @db.Timestamptz
+
+  carrito  Cart    @relation(fields: [carritoId], references: [id], onDelete: Cascade)
+  producto Product @relation(fields: [productoId], references: [id], onDelete: Cascade)
+
+  @@unique([carritoId, productoId], name: "unico_carrito_producto")
+  @@map("elementos_carrito")
+}
+
+// ==========================================
+// 5. ÓRDENES, PAGOS MIXTOS Y REPARTO
+// ==========================================
+
+model Order {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  folio         Int      @unique @default(autoincrement())
+  usuarioId     String?  @map("usuario_id") @db.Uuid
+  meseroId      String?  @map("mesero_id") @db.Uuid
+  mesaId        Int?     @map("mesa_id")
+  direccionId   String?  @map("direccion_id") @db.Uuid
+  tipoOrden     String   @default("delivery") @map("tipo_orden") @db.VarChar(30)
+  estado        String   @default("pendiente") @db.VarChar(30)
+  impresoCocina Boolean  @default(false) @map("impreso_cocina")
+  impresoCuenta Boolean  @default(false) @map("impreso_cuenta")
+  subtotal      Decimal  @db.Decimal(10, 2)
+  costoEnvio    Decimal  @default(0.00) @map("costo_envio") @db.Decimal(10, 2)
+  total         Decimal  @db.Decimal(10, 2)
+  notas         String?  @db.Text
+  creadoEn      DateTime @default(now()) @map("creado_en") @db.Timestamptz
+  actualizadoEn DateTime @updatedAt @map("actualizado_en") @db.Timestamptz
+
+  usuario                 User?            @relation("OrdenCliente", fields: [usuarioId], references: [id], onDelete: Restrict)
+  mesero                  User?            @relation("OrdenMesero", fields: [meseroId], references: [id], onDelete: SetNull)
+  mesa                    Table?           @relation(fields: [mesaId], references: [id], onDelete: SetNull)
+  direccion               UserAddress?     @relation(fields: [direccionId], references: [id], onDelete: Restrict)
+  detalles                OrderItem[]
+  pagos                   Payment[]
+  entrega                 Delivery?
+  tiemposCocina           KitchenTime?
+  historialPuntos         PointsHistory[]
+  historialReimpresiones  ReprintHistory[]
+
+  @@index([folio], name: "idx_ordenes_folio")
+  @@index([creadoEn(sort: Desc)], name: "idx_ordenes_creado_en")
+  @@index([tipoOrden], name: "idx_ordenes_tipo")
+  @@index([mesaId], name: "idx_ordenes_mesa")
+  @@index([meseroId], name: "idx_ordenes_mesero")
+  @@index([estado], name: "idx_ordenes_estado")
+  @@map("ordenes")
+}
+
+model OrderItem {
+  id             String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ordenId        String  @map("orden_id") @db.Uuid
+  productoId     String  @map("producto_id") @db.Uuid
+  cantidad       Int
+  precioUnitario Decimal @map("precio_unitario") @db.Decimal(10, 2)
+  subtotal       Decimal @db.Decimal(10, 2)
+
+  orden    Order   @relation(fields: [ordenId], references: [id], onDelete: Cascade)
+  producto Product @relation(fields: [productoId], references: [id], onDelete: Restrict)
+
+  @@map("detalles_orden")
+}
+
+model Payment {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ordenId       String    @map("orden_id") @db.Uuid
+  metodoPago    String    @map("metodo_pago") @db.VarChar(30)
+  estado        String    @default("pendiente") @db.VarChar(30)
+  idTransaccion String?   @map("id_transaccion") @db.VarChar(100)
+  monto         Decimal   @db.Decimal(10, 2)
+  pagadoEn      DateTime? @map("pagado_en") @db.Timestamptz
+  creadoEn      DateTime  @default(now()) @map("creado_en") @db.Timestamptz
+
+  orden Order @relation(fields: [ordenId], references: [id], onDelete: Cascade)
+
+  @@map("pagos")
+}
+
+model Delivery {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ordenId      String    @unique @map("orden_id") @db.Uuid
+  repartidorId String?   @map("repartidor_id") @db.Uuid
+  estado       String    @default("asignado") @db.VarChar(30)
+  asignadoEn   DateTime  @default(now()) @map("asignado_en") @db.Timestamptz
+  entregadoEn  DateTime? @map("entregado_en") @db.Timestamptz
+  creadoEn     DateTime  @default(now()) @map("creado_en") @db.Timestamptz
+
+  orden      Order @relation(fields: [ordenId], references: [id], onDelete: Cascade)
+  repartidor User? @relation("RepartidorEntrega", fields: [repartidorId], references: [id], onDelete: SetNull)
+
+  @@map("entregas")
+}
+
+// ==========================================
+// 6. CONTROL DE COCINA (KDS)
+// ==========================================
+
+model KitchenTime {
+  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ordenId               String    @unique @map("orden_id") @db.Uuid
+  cocineroId            String?   @map("cocinero_id") @db.Uuid
+  tiempoEstimadoMinutos Int       @default(15) @map("tiempo_estimado_minutos")
+  estadoCocina          String    @default("en_espera") @map("estado_cocina") @db.VarChar(30)
+  inicioPreparacionEn   DateTime? @map("inicio_preparacion_en") @db.Timestamptz
+  listoEn                DateTime? @map("listo_en") @db.Timestamptz
+  creadoEn              DateTime  @default(now()) @map("creado_en") @db.Timestamptz
+
+  orden    Order @relation(fields: [ordenId], references: [id], onDelete: Cascade)
+  cocinero User? @relation("CocineroTiempo", fields: [cocineroId], references: [id], onDelete: SetNull)
+
+  @@index([estadoCocina], name: "idx_tiempos_cocina_estado")
+  @@map("tiempos_cocina")
+}
+
+// ==========================================
+// 7. PROGRAMA DE LEALTAD Y PUNTOS
+// ==========================================
+
+model PointsHistory {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  usuarioId       String   @map("usuario_id") @db.Uuid
+  ordenId         String?  @map("orden_id") @db.Uuid
+  registradoPorId String?  @map("registrado_por_id") @db.Uuid
+  tipoMovimiento  String   @map("tipo_movimiento") @db.VarChar(30)
+  puntos          Int
+  descripcion     String   @db.Text
+  creadoEn        DateTime @default(now()) @map("creado_en") @db.Timestamptz
+
+  usuario       User   @relation("ClientePuntos", fields: [usuarioId], references: [id], onDelete: Cascade)
+  orden         Order? @relation(fields: [ordenId], references: [id], onDelete: SetNull)
+  registradoPor User?  @relation("RegistradorPuntos", fields: [registradoPorId], references: [id], onDelete: SetNull)
+
+  @@index([usuarioId], name: "idx_historial_puntos_usuario")
+  @@map("historial_puntos")
+}
+
+// ==========================================
+// 8. AUDITORÍA DE REIMPRESIONES (POS)
+// ==========================================
+
+model ReprintHistory {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ordenId         String   @map("orden_id") @db.Uuid
+  solicitadoPorId String   @map("solicitado_por_id") @db.Uuid
+  tipoTicket      String   @map("tipo_ticket") @db.VarChar(30)
+  creadoEn        DateTime @default(now()) @map("creado_en") @db.Timestamptz
+
+  orden         Order @relation(fields: [ordenId], references: [id], onDelete: Cascade)
+  solicitadoPor User  @relation("SolicitanteReimpresion", fields: [solicitadoPorId], references: [id], onDelete: Restrict)
+
+  @@index([ordenId], name: "idx_historial_reimpresiones_orden")
+  @@map("historial_reimpresiones")
+}
