@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { HealthRepository } from '../repositories/health.repository';
 
 export class HealthService {
@@ -7,8 +8,8 @@ export class HealthService {
     this.healthRepository = new HealthRepository();
   }
 
-  public getSystemStatus() {
-    const dbStatus = this.healthRepository.checkDatabaseStatus();
+  public async getSystemStatus() {
+    const dbStatus = await this.healthRepository.checkDatabaseStatus();
 
     return {
       status: 'UP',

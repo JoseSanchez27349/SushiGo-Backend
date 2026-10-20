@@ -8,9 +8,9 @@ export class HealthController {
     this.healthService = new HealthService();
   }
 
-  public getHealth = (_req: Request, res: Response, next: NextFunction): void => {
+  public getHealth = async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const status = this.healthService.getSystemStatus();
+      const status = await this.healthService.getSystemStatus();
       res.status(200).json(status);
     } catch (error) {
       next(error);
