@@ -1,59 +1,79 @@
-import { PrismaClient } from '@prisma/client';
-import { PrismaPg } from '@prisma/adapter-pg';
-import { Pool } from 'pg';
-import 'dotenv/config';
-
-const connectionString = process.env.DATABASE_URL;
-const pool = new Pool({ connectionString });
-const adapter = new PrismaPg(pool);
-const prisma = new PrismaClient({ adapter });
+import bcrypt from 'bcrypt';
+import prisma from '../src/config/prisma';
 
 async function main() {
-  console.log('🌱 Poblando base de datos inicial...');
+  console.log('🌱 Poblando base de datos...');
 
-  // 1. Roles del sistema
-  const roles = [
-    { id: 1, nombre: 'administrador', descripcion: 'Acceso total al sistema' },
-    { id: 2, nombre: 'cliente', descripcion: 'Cliente registrado en App/Web' },
-    { id: 3, nombre: 'repartidor', descripcion: 'Repartidor de pedidos Delivery' },
-    { id: 4, nombre: 'cocinero', descripcion: 'Personal de cocina KDS' },
-    { id: 5, nombre: 'mesero', descripcion: 'Atención en salón POS' },
-  ];
+  // 1. Crear Roles base
+  const rolAdmin = await prisma.role.upsert({
+    where: { nombre: 'Admin' },
+    update: {},
+    create: { nombre: 'Admin', descripcion: 'Administrador general con acceso total' },
+  });
 
-  for (const rol of roles) {
-    await prisma.role.upsert({
-      where: { id: rol.id },
-      update: {},
-      create: rol,
-    });
-  }
+  const rolMesero = await prisma.role.upsert({
+    where: { nombre: 'Mesero' },
+    update: {},
+    create: { nombre: 'Mesero', descripcion: 'Personal de salón para toma de pedidos POS' },
+  });
 
-  // 2. Mesas iniciales
-  const mesas = [
-    { numeroMesa: 'Mesa 1', capacidad: 4 },
-    { numeroMesa: 'Mesa 2', capacidad: 4 },
-    { numeroMesa: 'Mesa 3', capacidad: 2 },
-    { numeroMesa: 'Mesa 4', capacidad: 6 },
-    { numeroMesa: 'Barra 1', capacidad: 1 },
-  ];
+  const rolCocina = await prisma.role.upsert({
+    where: { nombre: 'Cocina' },
+    update: {},
+    create: { nombre: 'Cocina', descripcion: 'Personal de cocina para pantalla KDS' },
+  });
 
-  for (const mesa of mesas) {
-    await prisma.table.upsert({
-      where: { numeroMesa: mesa.numeroMesa },
-      update: {},
-      create: mesa,
-    });
-  }
+  // 2. Generar Hashes de PIN (Todos usan PIN "1234" para pruebas)
+  const pinHash = await bcrypt.hash('1234', 10);
 
-  console.log('✅ Base de datos poblada con éxito.');
+  // 3. Crear Usuarios con Código de Empleado de 4 dígitos
+  await prisma.user.upsert({
+    where: { codigoEmpleado: '7001' },
+    update: {},
+    create: {
+      nombre: 'Carlos',
+      apellido: 'Mendoza',
+      telefono: '3310000001',
+      codigoEmpleado: '7001',
+      pinHash,
+      rolId: rolMesero.id,
+    },
+  });
+
+  await prisma.user.upsert({
+    where: { codigoEmpleado: '7002' },
+    update: {},
+    create: {
+      nombre: 'Kenji',
+      apellido: 'Sato',
+      telefono: '3310000002',
+      codigoEmpleado: '7002',
+      pinHash,
+      rolId: rolCocina.id,
+    },
+  });
+
+  await prisma.user.upsert({
+    where: { codigoEmpleado: '9999' },
+    update: {},
+    create: {
+      nombre: 'Admin',
+      apellido: 'SushiGo',
+      telefono: '3310000000',
+      codigoEmpleado: '9999',
+      pinHash,
+      rolId: rolAdmin.id,
+    },
+  });
+
+  console.log('✅ Seeding completado con éxito.');
 }
 
 main()
   .catch((e) => {
-    console.error('❌ Error en el proceso de seed:', e);
+    console.error(e);
     process.exit(1);
   })
   .finally(async () => {
     await prisma.$disconnect();
-    await pool.end();
   });
