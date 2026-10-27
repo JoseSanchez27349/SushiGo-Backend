@@ -21,31 +21,39 @@ model Role {
 }
 
 model User {
-  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  rolId             Int      @map("rol_id")
-  nombre            String   @db.VarChar(50)
-  apellido          String   @db.VarChar(50)
-  telefono          String   @unique @db.VarChar(20)
-  correoElectronico String?  @unique @map("correo_electronico") @db.VarChar(100)
-  contrasenaHash    String?  @map("contrasena_hash") @db.VarChar(255)
-  codigoEmpleado    String?  @unique @map("codigo_empleado") @db.VarChar(4)
-  pinHash           String?  @map("pin_hash") @db.VarChar(255)
-  puntosAcumulados  Int      @default(0) @map("puntos_acumulados")
-  estaActivo        Boolean  @default(true) @map("esta_activo")
-  creadoEn          DateTime @default(now()) @map("creado_en") @db.Timestamptz
-  actualizadoEn     DateTime @updatedAt @map("actualizado_en") @db.Timestamptz
+  id                        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  rolId                     Int       @map("rol_id")
+  nombre                    String    @db.VarChar(50)
+  apellido                  String    @db.VarChar(50)
+  telefono                  String    @unique @db.VarChar(20)
+  correoElectronico         String?   @unique @map("correo_electronico") @db.VarChar(100)
+  contrasenaHash            String?   @map("contrasena_hash") @db.VarChar(255)
+  codigoEmpleado            String?   @unique @map("codigo_empleado") @db.VarChar(4)
+  pinHash                   String?   @map("pin_hash") @db.VarChar(255)
+  puntosAcumulados          Int       @default(0) @map("puntos_acumulados")
+  estaActivo                Boolean   @default(true) @map("esta_activo")
 
-  rol                           Role                @relation(fields: [rolId], references: [id], onDelete: Restrict)
-  direcciones                   UserAddress[]
-  carrito                       Cart?
-  ordenesComoCliente            Order[]             @relation("OrdenCliente")
-  ordenesComoMesero             Order[]             @relation("OrdenMesero")
-  entregasComoRepartidor        Delivery[]          @relation("RepartidorEntrega")
-  tiemposCocinaComoChef         KitchenTime[]       @relation("CocineroTiempo")
-  historialPuntosObtenidos      PointsHistory[]     @relation("ClientePuntos")
-  historialPuntosOtorgados      PointsHistory[]     @relation("RegistradorPuntos")
-  historialReimpresionesPedidas ReprintHistory[]    @relation("SolicitanteReimpresion")
-  movimientosInventario         InventoryMovement[] @relation("UsuarioMovimiento")
+  // 🔐 Campos para 2FA y Recuperación de Contraseña
+  dosFactoresActivado         Boolean   @default(false) @map("dos_factores_activado")
+  codigo2fa                   String?   @map("codigo_2fa") @db.VarChar(6)
+  expiracion2fa               DateTime? @map("expiracion_2fa") @db.Timestamptz
+  tokenRecuperacion           String?   @map("token_recuperacion") @db.VarChar(255)
+  expiracionTokenRecuperacion DateTime? @map("expiracion_token_recuperacion") @db.Timestamptz
+
+  creadoEn                  DateTime  @default(now()) @map("creado_en") @db.Timestamptz
+  actualizadoEn             DateTime  @updatedAt @map("actualizado_en") @db.Timestamptz
+
+  rol                       Role      @relation(fields: [rolId], references: [id], onDelete: Restrict)
+  direcciones               UserAddress[]
+  carrito                   Cart?
+  ordenesComoCliente        Order[]   @relation("OrdenCliente")
+  ordenesComoMesero         Order[]   @relation("OrdenMesero")
+  entregasComoRepartidor    Delivery[] @relation("RepartidorEntrega")
+  tiemposCocinaComoChef     KitchenTime[] @relation("CocineroTiempo")
+  historialPuntosObtenidos  PointsHistory[] @relation("ClientePuntos")
+  historialPuntosOtorgados  PointsHistory[] @relation("RegistradorPuntos")
+  historialReimpresionesPedidas ReprintHistory[] @relation("SolicitanteReimpresion")
+  movimientosInventario     InventoryMovement[] @relation("UsuarioMovimiento")
 
   @@index([telefono], name: "idx_usuarios_telefono")
   @@index([codigoEmpleado], name: "idx_usuarios_codigo_empleado")
