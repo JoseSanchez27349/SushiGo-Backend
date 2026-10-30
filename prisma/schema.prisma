@@ -33,7 +33,7 @@ model User {
   puntosAcumulados          Int       @default(0) @map("puntos_acumulados")
   estaActivo                Boolean   @default(true) @map("esta_activo")
 
-  // 🔐 Campos para 2FA y Recuperación de Contraseña
+  //  Campos para 2FA y Recuperación de Contraseña
   dosFactoresActivado         Boolean   @default(false) @map("dos_factores_activado")
   codigo2fa                   String?   @map("codigo_2fa") @db.VarChar(6)
   expiracion2fa               DateTime? @map("expiracion_2fa") @db.Timestamptz

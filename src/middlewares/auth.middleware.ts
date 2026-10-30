@@ -1,27 +1,49 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
+import { JwtUsuarioPayload } from '../types/express';
 
-export interface JwtPayload {
-  userId: string;
-  codeId: string;
-  role: string;
-}
+// 1. Middleware para validar el Token JWT
+export const autenticarToken = (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): void => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1]; // Formato: "Bearer TOKEN"
 
-export const authenticateJWT = (req: Request, res: Response, next: NextFunction) => {
-  const authHeader = req.headers.authorization;
-
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({ message: 'Acceso no autorizado: Token no proporcionado' });
+  if (!token) {
+    res.status(401).json({ message: 'Acceso denegado: Token no proporcionado' });
+    return;
   }
-
-  const token = authHeader.split(' ')[1];
 
   try {
-    const secret = process.env.JWT_SECRET || 'sushigo_jwt_secret_key_2026_production';
-    const decoded = jwt.verify(token, secret) as JwtPayload;
-    req.user = decoded;
+    const secret = process.env.JWT_SECRET || 'secreto_super_seguro';
+    const decoded = jwt.verify(token, secret) as JwtUsuarioPayload;
+    
+    // Asignamos la información decodificada a req.usuario
+    req.usuario = decoded;
     next();
   } catch (error) {
-    return res.status(401).json({ message: 'Token inválido o expirado' });
+    res.status(403).json({ message: 'Token inválido o expirado' });
+    return;
   }
+};
+
+// 2. Middleware para Control de Acceso basado en Roles (RBAC)
+export const permitirRoles = (...rolesPermitidos: string[]) => {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    if (!req.usuario) {
+      res.status(401).json({ message: 'Usuario no autenticado' });
+      return;
+    }
+
+    if (!rolesPermitidos.includes(req.usuario.rol)) {
+      res.status(403).json({
+        message: `Acceso prohibido: Se requiere rol [${rolesPermitidos.join(', ')}]`,
+      });
+      return;
+    }
+
+    next();
+  };
 };
