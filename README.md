@@ -62,28 +62,150 @@ Infraestructura de comunicación asíncrona para rastreo en vivo.
 
 ---
 
-## 🌐 API Centralizada: Endpoints Expuestos
+## API: Rutas para Postman
 
-El servidor escucha por defecto en el puerto `3000` (`http://localhost:3000/api`).
+El servidor local escucha por defecto en `http://localhost:3000`. En Postman,
+crea una variable `baseUrl` con el valor `http://localhost:3000` y usa las rutas
+completas de esta sección. Para enviar JSON, selecciona **Body → raw → JSON**.
 
-### 🔐 Autenticación
-- `POST /api/auth/register` — Registro de cliente.
-- `POST /api/auth/login` — Inicio de sesión (Cliente, Repartidor, Admin).
-- `POST /api/auth/refresh` — Renovación de Access Token expirado.
+### Autenticación y prueba de conexión
 
-### 🍣 Catálogo y Productos
-- `GET /api/productos` — Obtener catálogo completo con filtros y búsqueda.
-- `GET /api/productos/:id` — Obtener detalle de un producto específico.
-- `GET /api/categorias` — Listar categorías activas.
+| Método | URL | Acceso |
+|---|---|---|
+| `GET` | `{{baseUrl}}/api/health` | Público |
+| `POST` | `{{baseUrl}}/api/v1/auth/login-admin` | Público |
+| `POST` | `{{baseUrl}}/api/v1/auth/login-staff` | Público |
+| `POST` | `{{baseUrl}}/api/v1/auth/customer/register` | Público |
+| `POST` | `{{baseUrl}}/api/v1/auth/customer/login` | Público |
+| `POST` | `{{baseUrl}}/api/v1/auth/customer/verify-2fa` | Público |
+| `POST` | `{{baseUrl}}/api/v1/auth/customer/forgot-password` | Público |
+| `POST` | `{{baseUrl}}/api/v1/auth/customer/reset-password` | Público |
+| `GET` | `{{baseUrl}}/api/v1/auth/me` | Bearer token |
+| `GET` | `{{baseUrl}}/api/v1/auth/admin/dashboard-stats` | Admin |
 
-### 🛒 Pedidos (Clientes)
-- `POST /api/pedidos` — Crear y confirmar una nueva orden de compra.
-- `GET /api/pedidos/cliente` — Consultar historial de compras del cliente autenticado.
-- `GET /api/pedidos/:id` — Consultar detalle y estado actual de una orden.
+Para obtener un token de administrador:
 
-### 🛵 Pedidos (Repartidores)
-- `GET /api/repartidor/pedidos` — Listar pedidos asignados al repartidor.
-- `PUT /api/pedidos/:id/estado` — Actualizar la fase del envío (*En camino*, *Entregado*).
+```json
+{
+  "correoElectronico": "admin@ejemplo.com",
+  "password": "tu-contrasena"
+}
+```
+
+Para obtener un token de personal:
+
+```json
+{
+  "codigoEmpleado": "0001",
+  "pin": "1234"
+}
+```
+
+En las peticiones protegidas, configura **Authorization → Bearer Token** y pega
+el valor `token` que devuelve el login (sin escribir `Bearer ` en el campo del
+token). Las rutas de escritura y administración requieren un usuario con rol
+`Admin`.
+
+### Personal y operaciones
+
+| Método | URL | Acceso |
+|---|---|---|
+| `POST` | `{{baseUrl}}/api/v1/usuarios/staff` | Admin |
+| `GET` | `{{baseUrl}}/api/v1/usuarios/staff` | Admin |
+| `PUT` | `{{baseUrl}}/api/v1/usuarios/staff/:id` | Admin |
+| `DELETE` | `{{baseUrl}}/api/v1/usuarios/staff/:id` | Admin |
+| `GET` | `{{baseUrl}}/api/v1/staff/kitchen/orders` | Admin o Cocina |
+| `GET` | `{{baseUrl}}/api/v1/staff/pos/tables` | Admin o Mesero |
+
+Ejemplo de `POST /api/v1/usuarios/staff`:
+
+```json
+{
+  "nombre": "Ana",
+  "apellido": "Lopez",
+  "telefono": "5551234567",
+  "codigoEmpleado": "0002",
+  "pin": "1234",
+  "rolNombre": "Cocina"
+}
+```
+
+`rolNombre` acepta `Mesero` o `Cocina`.
+
+### Categorías y productos
+
+| Método | URL | Acceso |
+|---|---|---|
+| `GET` | `{{baseUrl}}/api/v1/categorias` | Bearer token |
+| `POST` | `{{baseUrl}}/api/v1/categorias` | Admin |
+| `PUT` | `{{baseUrl}}/api/v1/categorias/:id` | Admin |
+| `DELETE` | `{{baseUrl}}/api/v1/categorias/:id` | Admin |
+| `GET` | `{{baseUrl}}/api/v1/productos` | Bearer token |
+| `GET` | `{{baseUrl}}/api/v1/productos/:id` | Bearer token |
+| `POST` | `{{baseUrl}}/api/v1/productos` | Admin |
+| `PUT` | `{{baseUrl}}/api/v1/productos/:id` | Admin |
+| `DELETE` | `{{baseUrl}}/api/v1/productos/:id` | Admin |
+
+Ejemplo de creación de categoría:
+
+```json
+{
+  "nombre": "Rolls",
+  "descripcion": "Rollos de sushi"
+}
+```
+
+Ejemplo de creación de producto (usa el `id` numérico de una categoría existente):
+
+```json
+{
+  "categoriaId": 1,
+  "nombre": "California roll",
+  "descripcion": "Aguacate y pepino",
+  "precio": 120,
+  "urlImagen": "https://ejemplo.com/roll.jpg",
+  "estaDisponible": true
+}
+```
+
+Se pueden filtrar productos con `GET /api/v1/productos?categoriaId=1&disponible=true`.
+
+### Inventario y recetas
+
+| Método | URL | Acceso |
+|---|---|---|
+| `GET` | `{{baseUrl}}/api/v1/ingredientes` | Admin o Cocina |
+| `POST` | `{{baseUrl}}/api/v1/ingredientes` | Admin |
+| `PUT` | `{{baseUrl}}/api/v1/ingredientes/:id` | Admin |
+| `DELETE` | `{{baseUrl}}/api/v1/ingredientes/:id` | Admin |
+| `GET` | `{{baseUrl}}/api/v1/recetas/producto/:productoId` | Admin o Cocina |
+| `POST` | `{{baseUrl}}/api/v1/recetas/producto/:productoId` | Admin |
+| `DELETE` | `{{baseUrl}}/api/v1/recetas/producto/:productoId/ingrediente/:ingredienteId` | Admin |
+
+Ejemplo de `POST /api/v1/ingredientes`:
+
+```json
+{
+  "nombre": "Arroz",
+  "unidadMedida": "kg",
+  "stockActual": 10,
+  "stockMinimo": 2,
+  "costoUnitario": 50
+}
+```
+
+Ejemplo de `POST /api/v1/recetas/producto/:productoId` (reemplaza la receta del producto):
+
+```json
+{
+  "ingredientes": [
+    {
+      "ingredienteId": "UUID-DEL-INGREDIENTE",
+      "cantidad": 0.2
+    }
+  ]
+}
+```
 
 ---
 

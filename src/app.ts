@@ -1,5 +1,6 @@
 import express from 'express';
-import authRoutes from './routes/auth.routes';
+import routes from './routes';
+import { errorHandler } from './middlewares/error.middleware';
 
 const app = express();
 
@@ -12,8 +13,8 @@ app.use((req, res, next) => {
   next();
 });
 
-// 3. Rutas de Autenticación
-app.use('/api/v1/auth', authRoutes);
+// Rutas de autenticación, staff y usuarios
+app.use('/api', routes);
 
 // 4. Manejador 404 en JSON (reemplaza el HTML por defecto)
 app.use((req, res) => {
@@ -22,8 +23,10 @@ app.use((req, res) => {
     error: 'Ruta no encontrada',
     metodo: req.method,
     urlRecibida: req.url,
-    sugerencia: 'Verifica la URL en Postman o el prefijo en app.ts'
+    sugerencia: 'Verifica la URL en Postman o el prefijo en app.ts',
   });
 });
+
+app.use(errorHandler);
 
 export default app;

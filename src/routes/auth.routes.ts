@@ -1,12 +1,13 @@
 import { Router } from 'express';
 import { loginWithPin } from '../controllers/auth.controller';
-import { 
-  registerCustomer, 
-  loginCustomer, 
-  verify2FACode, 
-  forgotPassword, 
+import { loginAdmin } from '../controllers/loginAdmin.controller';
+import {
+  registerCustomer,
+  loginCustomer,
+  verify2FACode,
+  forgotPassword,
   resetPassword,
-  obtenerPerfil 
+  obtenerPerfil,
 } from '../controllers/customerAuth.controller';
 import { autenticarToken, permitirRoles } from '../middlewares/auth.middleware';
 
@@ -19,12 +20,14 @@ router.post('/customer/verify-2fa', verify2FACode);
 router.post('/customer/forgot-password', forgotPassword);
 router.post('/customer/reset-password', resetPassword);
 // Auth Staff
-router.post('/login-pin', loginWithPin);
+router.post('/login-staff', loginWithPin);
+// Auth Admin
+router.post('/login-admin', loginAdmin);
 // Ruta Protegida: Perfil
 router.get('/me', autenticarToken, obtenerPerfil);
 
 // Ruta Protegida: Dashboard de Admin
-router.get('/admin/dashboard-stats', autenticarToken, permitirRoles('Administrador'), (req, res) => {
+router.get('/admin/dashboard-stats', autenticarToken, permitirRoles('Admin'), (req, res) => {
   res.json({ message: 'Bienvenido al panel de administración de SushiGo' });
 });
 

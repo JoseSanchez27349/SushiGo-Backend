@@ -3,9 +3,8 @@ import bcrypt from 'bcrypt';
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import prisma from '../config/prisma';
+import { getJwtSecret } from '../config/jwt';
 import { enviarCodigo2FA, enviarRecuperacionContrasena } from '../services/email.service';
-
-const JWT_SECRET = process.env.JWT_SECRET || 'sushigo_secret_key';
 
 // 1. Registro de Cliente
 export const registerCustomer = async (req: Request, res: Response): Promise<void> => {
@@ -125,15 +124,13 @@ export const loginCustomer = async (req: Request, res: Response): Promise<void> 
 }
 
     // 5. SI NO TIENE 2FA ACTIVADO: Generar Token JWT e iniciar sesión directo
-    const secret = process.env.JWT_SECRET || 'secreto_super_seguro';
-    
     const token = jwt.sign(
       {
         id: usuario.id,
         correoElectronico: usuario.correoElectronico,
         rol: usuario.rolId,
       },
-      secret,
+      getJwtSecret(),
       { expiresIn: '24h' }
     );
 
@@ -183,11 +180,9 @@ export const verify2FACode = async (req: Request, res: Response): Promise<void> 
       data: { codigo2fa: null, expiracion2fa: null },
     });
 
-    const token = jwt.sign(
-      { id: usuario.id, rol: usuario.rol.nombre },
-      JWT_SECRET,
-      { expiresIn: '7d' }
-    );
+    const token = jwt.sign({ id: usuario.id, rol: usuario.rol.nombre }, getJwtSecret(), {
+      expiresIn: '7d',
+    });
 
     res.status(200).json({
       token,

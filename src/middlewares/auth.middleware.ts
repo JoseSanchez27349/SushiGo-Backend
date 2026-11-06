@@ -1,13 +1,9 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
-import { JwtUsuarioPayload } from '../types/express';
+import { getJwtSecret } from '../config/jwt';
 
 // 1. Middleware para validar el Token JWT
-export const autenticarToken = (
-  req: Request,
-  res: Response,
-  next: NextFunction
-): void => {
+export const autenticarToken = (req: Request, res: Response, next: NextFunction): void => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1]; // Formato: "Bearer TOKEN"
 
@@ -16,14 +12,30 @@ export const autenticarToken = (
     return;
   }
 
+  const secret = getJwtSecret();
   try {
-    const secret = process.env.JWT_SECRET || 'secreto_super_seguro';
-    const decoded = jwt.verify(token, secret) as JwtUsuarioPayload;
-    
-    // Asignamos la información decodificada a req.usuario
-    req.usuario = decoded;
+    const decoded = jwt.verify(token, secret);
+    if (typeof decoded === 'string') {
+      res.status(403).json({ message: 'Token inválido o expirado' });
+      return;
+    }
+
+    const id = typeof decoded.id === 'string' ? decoded.id : decoded.userId;
+    const rol = typeof decoded.rol === 'string' ? decoded.rol : decoded.role;
+    if (typeof id !== 'string' || typeof rol !== 'string') {
+      res.status(403).json({ message: 'Token inválido o expirado' });
+      return;
+    }
+
+    req.usuario = {
+      id,
+      rol,
+      ...(typeof decoded.correoElectronico === 'string'
+        ? { correoElectronico: decoded.correoElectronico }
+        : {}),
+    };
     next();
-  } catch (error) {
+  } catch {
     res.status(403).json({ message: 'Token inválido o expirado' });
     return;
   }

@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import prisma from '../config/prisma';
+import { getJwtSecret } from '../config/jwt';
 
 export const loginWithPin = async (req: Request, res: Response) => {
   try {
@@ -40,8 +41,7 @@ export const loginWithPin = async (req: Request, res: Response) => {
       role: user.rol.nombre, // "Admin", "Cocina", "Mesero"
     };
 
-    const secret = process.env.JWT_SECRET || 'sushigo_jwt_secret_key_2026_production';
-    const token = jwt.sign(payload, secret, { expiresIn: '8h' });
+    const token = jwt.sign(payload, getJwtSecret(), { expiresIn: '8h' });
 
     // 6. Respuesta exitosa
     return res.status(200).json({
