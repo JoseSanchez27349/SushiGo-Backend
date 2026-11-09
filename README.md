@@ -272,6 +272,45 @@ La respuesta conserva además los datos relacionados de la comanda (orden, mesa,
 productos y cocinero). Mientras la comanda está en espera, el contador muestra
 cero minutos y la hora de inicio es `null`.
 
+### Pagos y reimpresión de tickets
+
+| Método | URL | Acceso |
+|---|---|---|
+| `POST` | `{{baseUrl}}/api/v1/pagos/orden/:ordenId` | Admin o Mesero |
+| `POST` | `{{baseUrl}}/api/v1/pagos/orden/:ordenId/reimpresion` | Admin o Mesero |
+| `GET` | `{{baseUrl}}/api/v1/pagos/orden/:ordenId` | Admin o Mesero |
+
+Todas requieren Bearer token. Sustituye `:ordenId` por el UUID que devuelve la
+creación de la orden.
+
+Ejemplo para cobrar una orden (el monto debe cubrir el total):
+
+```json
+{
+  "pagos": [
+    {
+      "metodoPago": "efectivo",
+      "monto": 250
+    },
+    {
+      "metodoPago": "tarjeta",
+      "monto": 100,
+      "idTransaccion": "TX-12345"
+    }
+  ]
+}
+```
+
+Los métodos aceptados son `efectivo`, `tarjeta` y `transferencia`. Para solicitar
+una reimpresión, envía `tipoTicket` con uno de estos valores: `precuenta`,
+`ticket_final` o `cocina`.
+
+```json
+{
+  "tipoTicket": "ticket_final"
+}
+```
+
 ---
 
 ## 📁 Estructura del Proyecto
