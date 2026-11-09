@@ -207,6 +207,71 @@ Ejemplo de `POST /api/v1/recetas/producto/:productoId` (reemplaza la receta del 
 }
 ```
 
+### Mesas, órdenes y cocina
+
+| Método | URL | Acceso |
+|---|---|---|
+| `GET` | `{{baseUrl}}/api/v1/mesas` | Bearer token |
+| `POST` | `{{baseUrl}}/api/v1/mesas` | Admin |
+| `PUT` | `{{baseUrl}}/api/v1/mesas/:id/estado` | Admin o Mesero |
+| `GET` | `{{baseUrl}}/api/v1/ordenes/activas` | Admin, Mesero o Cocina |
+| `POST` | `{{baseUrl}}/api/v1/ordenes` | Admin o Mesero |
+| `GET` | `{{baseUrl}}/api/v1/cocina/comandas` | Admin o Cocina |
+| `PUT` | `{{baseUrl}}/api/v1/cocina/comandas/:ordenId/estado` | Admin o Cocina |
+
+Ejemplo para crear una mesa:
+
+```json
+{
+  "numeroMesa": "M-01",
+  "capacidad": 4
+}
+```
+
+Ejemplo para cambiar su estado (`disponible`, `ocupada`, `reservada` o `mantenimiento`):
+
+```json
+{
+  "estado": "disponible"
+}
+```
+
+Para crear una orden, usa el UUID de un producto existente. Las órdenes de tipo
+`comedor` necesitan una mesa existente; la API calcula los precios usando el
+catálogo y descuenta existencias según la receta configurada:
+
+```json
+{
+  "tipoOrden": "comedor",
+  "mesaId": 1,
+  "notas": "Sin wasabi",
+  "items": [
+    {
+      "productoId": "UUID-DEL-PRODUCTO",
+      "cantidad": 2
+    }
+  ]
+}
+```
+
+Para avanzar una comanda en cocina, reemplaza `:ordenId` por el UUID devuelto
+al crear la orden:
+
+```json
+{
+  "estadoCocina": "en_preparacion"
+}
+```
+
+Los estados de cocina aceptados son `en_espera`, `en_preparacion` y `listo`.
+Al cambiar a `en_preparacion` comienza el temporizador. `GET /api/v1/cocina/comandas`
+devuelve `contadorEnVivo` con minutos transcurridos y restantes, el tiempo estimado,
+si está retrasada y su nivel de alerta (`normal` antes de 10 minutos,
+`advertencia` desde los 10 minutos y `critico` al exceder el tiempo estimado).
+La respuesta conserva además los datos relacionados de la comanda (orden, mesa,
+productos y cocinero). Mientras la comanda está en espera, el contador muestra
+cero minutos y la hora de inicio es `null`.
+
 ---
 
 ## 📁 Estructura del Proyecto
