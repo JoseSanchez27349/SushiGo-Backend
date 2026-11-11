@@ -6,12 +6,20 @@ import prisma from '../config/prisma';
 import { getJwtSecret } from '../config/jwt';
 import { enviarCodigo2FA, enviarRecuperacionContrasena } from '../services/email.service';
 
-// 1. Registro de Cliente
+// 1. Registro de Cliente (Envía código de verificación obligatoriamente)
 export const registerCustomer = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { nombre, apellido, telefono, correoElectronico, contrasena, activar2FA } = req.body;
+    const { nombre, apellido, telefono, correoElectronico, contrasena, password } = req.body;
+    const passwordFinal = contrasena || password;
 
-    if (!nombre || !apellido || !telefono || !correoElectronico || !contrasena) {
+    if (
+      !nombre ||
+      !apellido ||
+      !telefono ||
+      typeof correoElectronico !== 'string' ||
+      !correoElectronico.trim() ||
+      !passwordFinal
+    ) {
       res.status(400).json({ message: 'Todos los campos obligatorios deben ser completados' });
       return;
     }
@@ -35,7 +43,11 @@ export const registerCustomer = async (req: Request, res: Response): Promise<voi
       });
     }
 
-    const contrasenaHash = await bcrypt.hash(contrasena, 10);
+    const contrasenaHash = await bcrypt.hash(passwordFinal, 10);
+
+    // Generar código de verificación de 6 dígitos
+    const codigo2fa = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiracion2fa = new Date(Date.now() + 10 * 60 * 1000); // Expiración en 10 min
 
     const nuevoUsuario = await prisma.user.create({
       data: {
@@ -44,13 +56,19 @@ export const registerCustomer = async (req: Request, res: Response): Promise<voi
         telefono,
         correoElectronico,
         contrasenaHash,
-        dosFactoresActivado: Boolean(activar2FA),
+        dosFactoresActivado: true, // Se activa temporalmente para verificar la cuenta
+        codigo2fa,
+        expiracion2fa,
         rolId: rolCliente.id,
       },
     });
 
+    // Enviar código de verificación al correo
+    await enviarCodigo2FA(correoElectronico, codigo2fa);
+
     res.status(201).json({
-      message: 'Cliente registrado con éxito',
+      message: 'Código de verificación enviado a su correo electrónico',
+      requiereVerificacion: true,
       usuario: {
         id: nuevoUsuario.id,
         nombre: nuevoUsuario.nombre,
@@ -59,6 +77,7 @@ export const registerCustomer = async (req: Request, res: Response): Promise<voi
       },
     });
   } catch (error) {
+    console.error('Error en registerCustomer:', error);
     res.status(500).json({ message: 'Error interno al registrar cliente', error });
   }
 };
@@ -66,10 +85,11 @@ export const registerCustomer = async (req: Request, res: Response): Promise<voi
 // 2. Login de Cliente
 export const loginCustomer = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { correoElectronico, contrasena } = req.body;
+    const { correoElectronico, contrasena, password } = req.body;
+    const passwordFinal = contrasena || password;
 
     // 1. Validar campos obligatorios
-    if (!correoElectronico || !contrasena) {
+    if (!correoElectronico || !passwordFinal) {
       res.status(400).json({ message: 'Todos los campos obligatorios deben ser completados' });
       return;
     }
@@ -79,49 +99,45 @@ export const loginCustomer = async (req: Request, res: Response): Promise<void> 
       where: { correoElectronico },
     });
 
-    if (!usuario) {
+    if (!usuario || !usuario.contrasenaHash) {
       res.status(401).json({ message: 'Credenciales inválidas' });
       return;
     }
 
-    // 3. Comparar contraseña
-    if (!usuario.contrasenaHash) {
-      res.status(401).json({ message: 'Credenciales inválidas' });
-      return;
-    }
-
-    const esPasswordValida = bcrypt.compare(contrasena, usuario.contrasenaHash);
+    // 3. Comparar contraseña (con await)
+    const esPasswordValida = await bcrypt.compare(passwordFinal, usuario.contrasenaHash);
     if (!esPasswordValida) {
       res.status(401).json({ message: 'Credenciales inválidas' });
       return;
     }
 
-    // 4. SI TIENE 2FA ACTIVADO: Enviar código
+    // 4. SI TIENE 2FA ACTIVADO: Enviar código (solo si no ha verificado la cuenta)
     if (usuario.dosFactoresActivado) {
-  if (!usuario.correoElectronico) {
-    res.status(401).json({ message: 'Credenciales inválidas' });
-    return;
-  }
+      if (!usuario.correoElectronico) {
+        res.status(401).json({ message: 'Credenciales inválidas' });
+        return;
+      }
 
-  const codigo2fa = Math.floor(100000 + Math.random() * 900000).toString();
-  const expiracion2fa = new Date(Date.now() + 10 * 60 * 1000); // 10 minutos
+      const codigo2fa = Math.floor(100000 + Math.random() * 900000).toString();
+      const expiracion2fa = new Date(Date.now() + 10 * 60 * 1000); // 10 minutos
 
-  await prisma.user.update({
-    where: { id: usuario.id },
-    data: {
-      codigo2fa,        
-      expiracion2fa,    
-    },
-  });
+      // Guardar el nuevo código de 2FA generado en la base de datos
+      await prisma.user.update({
+        where: { id: usuario.id },
+        data: {
+          codigo2fa,        
+          expiracion2fa,    
+        },
+      });
 
-  await enviarCodigo2FA(usuario.correoElectronico, codigo2fa);
+      await enviarCodigo2FA(usuario.correoElectronico, codigo2fa);
 
-  res.status(200).json({
-    message: 'Código de verificación enviado a su correo electrónico',
-    requiere2FA: true,
-  });
-  return;
-}
+      res.status(200).json({
+        message: 'Código de verificación enviado a su correo electrónico',
+        requiere2FA: true,
+      });
+      return;
+    }
 
     // 5. SI NO TIENE 2FA ACTIVADO: Generar Token JWT e iniciar sesión directo
     const token = jwt.sign(
@@ -154,7 +170,8 @@ export const loginCustomer = async (req: Request, res: Response): Promise<void> 
     });
   }
 };
-// 3. Verificar código 2FA
+
+// 3. Verificar código 2FA / Registro
 export const verify2FACode = async (req: Request, res: Response): Promise<void> => {
   try {
     const { correoElectronico, codigo } = req.body;
@@ -174,10 +191,14 @@ export const verify2FACode = async (req: Request, res: Response): Promise<void> 
       return;
     }
 
-    // Limpiar código usado
+    // Limpiar código usado y DESACTIVAR 2FA para permitir logins directos futuros
     await prisma.user.update({
       where: { id: usuario.id },
-      data: { codigo2fa: null, expiracion2fa: null },
+      data: { 
+        codigo2fa: null, 
+        expiracion2fa: null,
+        dosFactoresActivado: false // 👈 Desactiva 2FA para que los siguientes logins sean directos
+      },
     });
 
     const token = jwt.sign({ id: usuario.id, rol: usuario.rol.nombre }, getJwtSecret(), {
@@ -205,13 +226,15 @@ export const forgotPassword = async (req: Request, res: Response): Promise<void>
 
     const usuario = await prisma.user.findUnique({ where: { correoElectronico } });
     if (!usuario) {
-      // Por seguridad no se expone si existe o no
-      res.status(200).json({ message: 'Si el correo está registrado, se enviará un enlace de recuperación' });
+      res
+        .status(200)
+        .json({ message: 'Si el correo está registrado, se enviará un enlace de recuperación' });
       return;
     }
 
-    const tokenRecuperacion = crypto.randomBytes(32).toString('hex');
-    const expiracionTokenRecuperacion = new Date(Date.now() + 60 * 60 * 1000); // 1 hora
+    // Generar PIN numérico de 6 dígitos
+    const tokenRecuperacion = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiracionTokenRecuperacion = new Date(Date.now() + 15 * 60 * 1000); // Validez de 15 minutos
 
     await prisma.user.update({
       where: { id: usuario.id },
@@ -220,7 +243,9 @@ export const forgotPassword = async (req: Request, res: Response): Promise<void>
 
     await enviarRecuperacionContrasena(usuario.correoElectronico!, tokenRecuperacion);
 
-    res.status(200).json({ message: 'Si el correo está registrado, se enviará un enlace de recuperación' });
+    res
+      .status(200)
+      .json({ message: 'Si el correo está registrado, se enviará un enlace de recuperación' });
   } catch (error) {
     res.status(500).json({ message: 'Error solicitando recuperación de contraseña', error });
   }
@@ -260,8 +285,7 @@ export const resetPassword = async (req: Request, res: Response): Promise<void> 
   }
 };
 
-
-//obtener los datos del usuario que tiene la sesión activa utilizando su token JWT
+// 6. Obtener Perfil
 export const obtenerPerfil = async (req: Request, res: Response): Promise<void> => {
   try {
     const usuarioId = req.usuario?.id;
