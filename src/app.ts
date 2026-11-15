@@ -1,10 +1,19 @@
 import express from 'express';
 import routes from './routes';
 import { errorHandler } from './middlewares/error.middleware';
+import cors from 'cors';
+import authRoutes from './routes/auth.routes';
 
 const app = express();
 
+
+
 // 1. Lectura de JSON
+app.use(cors({
+  origin: 'http://localhost:4200',
+  credentials: true
+}));
+
 app.use(express.json());
 
 // 2. LOGGER: Imprime en la consola cada petición que entra

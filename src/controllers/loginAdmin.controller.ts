@@ -52,9 +52,9 @@ export const loginAdmin = async (req: Request, res: Response) => {
 
     // 6. Generar JWT
     const payload = {
-      userId: user.id,
-      correoElectronico: user.correoElectronico!,
-      role: user.rol.nombre,
+      id: user.id,
+      correoElectronico: user.correoElectronico ?? undefined,
+      rol: user.rol.nombre,
     };
 
     const token = jwt.sign(payload, getJwtSecret(), { expiresIn: '8h' });

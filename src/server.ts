@@ -1,7 +1,13 @@
-import 'dotenv/config';
-import app from './app';
-const PORT = process.env.PORT || 3000;
+import http from 'http';
+import app from './app'; // o tu instancia de express()
+import { initSocket } from './config/socket';
 
-app.listen(Number(PORT), '0.0.0.0', () => {
-  console.log(`🚀 Servidor SushiGo corriendo en http://localhost:${PORT}`);
+const PORT = process.env.PORT || 3000;
+const httpServer = http.createServer(app);
+
+// Inicializar WebSockets sobre el mismo servidor HTTP
+initSocket(httpServer);
+
+httpServer.listen(PORT, () => {
+  console.log(`🚀 Servidor SushiGo + WebSockets corriendo en http://localhost:${PORT}`);
 });

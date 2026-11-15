@@ -97,6 +97,7 @@ export const loginCustomer = async (req: Request, res: Response): Promise<void> 
     // 2. Buscar usuario por correo
     const usuario = await prisma.user.findUnique({
       where: { correoElectronico },
+      include: { rol: true },
     });
 
     if (!usuario || !usuario.contrasenaHash) {
@@ -143,11 +144,11 @@ export const loginCustomer = async (req: Request, res: Response): Promise<void> 
     const token = jwt.sign(
       {
         id: usuario.id,
-        correoElectronico: usuario.correoElectronico,
-        rol: usuario.rolId,
+        correoElectronico: usuario.correoElectronico ?? undefined,
+        rol: usuario.rol.nombre,
       },
       getJwtSecret(),
-      { expiresIn: '24h' }
+      { expiresIn: '24h' },
     );
 
     res.status(200).json({
@@ -159,7 +160,7 @@ export const loginCustomer = async (req: Request, res: Response): Promise<void> 
         nombre: usuario.nombre,
         apellido: usuario.apellido,
         correoElectronico: usuario.correoElectronico,
-        rol: usuario.rolId,
+        rol: usuario.rol.nombre,
       },
     });
   } catch (error) {
@@ -201,9 +202,15 @@ export const verify2FACode = async (req: Request, res: Response): Promise<void> 
       },
     });
 
-    const token = jwt.sign({ id: usuario.id, rol: usuario.rol.nombre }, getJwtSecret(), {
-      expiresIn: '7d',
-    });
+    const token = jwt.sign(
+      {
+        id: usuario.id,
+        correoElectronico: usuario.correoElectronico ?? undefined,
+        rol: usuario.rol.nombre,
+      },
+      getJwtSecret(),
+      { expiresIn: '7d' },
+    );
 
     res.status(200).json({
       token,
