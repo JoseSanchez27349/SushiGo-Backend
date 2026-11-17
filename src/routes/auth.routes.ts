@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { loginWithPin } from '../controllers/auth.controller';
 import { loginAdmin } from '../controllers/loginAdmin.controller';
+import { registerAdmin, registerStaff } from '../controllers/register.controller';
 import {
   registerCustomer,
   loginCustomer,
@@ -21,8 +22,10 @@ router.post('/customer/forgot-password', forgotPassword);
 router.post('/customer/reset-password', resetPassword);
 // Auth Staff
 router.post('/login-staff', loginWithPin);
+router.post('/register-staff', registerStaff);
 // Auth Admin
 router.post('/login-admin', loginAdmin);
+router.post('/register-admin', registerAdmin);
 // Ruta Protegida: Perfil
 router.get('/me', autenticarToken, obtenerPerfil);
 
