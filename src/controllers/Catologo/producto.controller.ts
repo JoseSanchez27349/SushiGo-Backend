@@ -63,7 +63,7 @@ export const crearProducto = async (req: Request, res: Response): Promise<void> 
   }
 };
 
-// 2. LISTAR PRODUCTOS (Filtro opcional por categoría o disponibilidad)
+// 2. LISTAR PRODUCTOS (Filtro opcional por categoría o disponibilidad + cálculo de stock BOM)
 export const obtenerProductos = async (req: Request, res: Response): Promise<void> => {
   try {
     const { categoriaId, disponible } = req.query;
@@ -91,17 +91,50 @@ export const obtenerProductos = async (req: Request, res: Response): Promise<voi
       where: filtroWhere,
       include: {
         categoria: { select: { id: true, nombre: true, slug: true } },
+        recetas: {
+          include: {
+            ingrediente: {
+              select: {
+                id: true,
+                nombre: true,
+                stockActual: true,
+                unidadMedida: true,
+              },
+            },
+          },
+        },
       },
       orderBy: { creadoEn: 'desc' },
     });
 
-    res.status(200).json({ productos });
+    const productosConStock = productos.map((prod) => {
+      let porcionesDisponibles: number | null = null;
+      let tieneInsumosSuficientes = true;
+
+      if (prod.recetas.length > 0) {
+        const porcionesPorInsumo = prod.recetas.map((item) => {
+          const stock = Number(item.ingrediente.stockActual);
+          const requerida = Number(item.cantidadRequerida);
+          return requerida > 0 ? Math.floor(stock / requerida) : 0;
+        });
+
+        porcionesDisponibles = Math.min(...porcionesPorInsumo);
+        tieneInsumosSuficientes = porcionesDisponibles > 0;
+      }
+
+      return {
+        ...prod,
+        porcionesDisponibles, // Ej: 0 si hay 90g y pide 100g | null si no tiene receta asignada
+        disponibleParaVenta: prod.estaDisponible && tieneInsumosSuficientes,
+      };
+    });
+
+    res.status(200).json({ productos: productosConStock });
   } catch (error) {
     console.error('Error al obtener productos:', error);
     res.status(500).json({ message: 'Error interno del servidor' });
   }
 };
-
 // 3. OBTENER PRODUCTO POR ID
 export const obtenerProductoPorId = async (req: Request, res: Response): Promise<void> => {
   try {

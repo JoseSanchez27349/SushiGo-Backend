@@ -9,6 +9,14 @@ type PagoInput = {
   idTransaccion?: string;
 };
 
+interface AuthRequest extends Request {
+  user?: {
+    id: string;
+    rol: string;
+    nombre?: string;
+  };
+}
+
 const validarPagos = (pagos: unknown): PagoInput[] | null => {
   if (!Array.isArray(pagos) || pagos.length === 0) {
     return null;
@@ -50,146 +58,169 @@ const validarPagos = (pagos: unknown): PagoInput[] | null => {
 };
 
 // 1. REGISTRAR PAGO (Cobro individual o mixto, Cierre de Orden y Puntos)
-export const registrarPagoOrden = async (req: Request, res: Response): Promise<void> => {
+export const registrarPagoOrden = async (
+  req: AuthRequest,
+  res: Response,
+): Promise<void> => {
   try {
-    const ordenId = req.params.ordenId;
-    const usuarioCajeroId = req.usuario?.id;
+    const ordenId = Array.isArray(req.params.ordenId)
+      ? req.params.ordenId[0]
+      : req.params.ordenId;
 
-    if (typeof ordenId !== 'string' || !ordenId.trim()) {
-      res.status(400).json({ message: 'El ID de la orden es requerido' });
-      return;
-    }
+    const { pagos } = req.body as { pagos?: PagoInput[] };
 
-    const pagos = validarPagos(req.body?.pagos);
-    if (!pagos) {
+    if (!ordenId || !Array.isArray(pagos) || pagos.length === 0) {
       res.status(400).json({
-        message:
-          'Debe enviar pagos con método válido (efectivo, tarjeta o transferencia) y monto mayor a 0',
+        message: 'Debes indicar la orden y al menos una forma de pago válida.',
       });
       return;
     }
 
-    const idLimpio = ordenId.trim();
-
     const orden = await prisma.order.findUnique({
-      where: { id: idLimpio },
-      include: {
-        mesa: true,
-        usuario: true,
-        pagos: true,
-      },
+      where: { id: ordenId },
+      include: { mesa: true },
     });
 
     if (!orden) {
-      res.status(404).json({ message: 'Orden no encontrada' });
+      res.status(404).json({ message: 'La orden especificada no existe.' });
       return;
     }
 
     if (orden.estado === 'pagado') {
-      res.status(400).json({ message: 'Esta orden ya ha sido pagada previamente' });
+      res.status(400).json({ message: 'Esta orden ya fue cobrada anteriormente.' });
       return;
     }
 
     if (orden.estado === 'cancelado') {
-      res.status(400).json({ message: 'No se puede procesar el pago de una orden cancelada' });
+      res.status(400).json({ message: 'No se puede cobrar una orden cancelada.' });
       return;
     }
 
-    const montoTotalAbonado = Number(pagos.reduce((acc, item) => acc + item.monto, 0).toFixed(2));
+    const totalOrden = Number(orden.total || 0);
+    const pagosValidos = pagos.filter((p) => Number(p.monto) > 0);
 
-    const totalOrden = Number(orden.total);
+    if (pagosValidos.length === 0) {
+      res.status(400).json({ message: 'El monto del pago debe ser mayor a $0.00.' });
+      return;
+    }
 
-    if (montoTotalAbonado < totalOrden) {
+    const montoAbonado = Number(
+      pagosValidos.reduce((acc, p) => acc + Number(p.monto), 0).toFixed(2),
+    );
+
+    if (montoAbonado + 0.01 < totalOrden) {
       res.status(400).json({
-        message: `El monto abonado ($${montoTotalAbonado.toFixed(2)}) es menor al total de la orden ($${totalOrden.toFixed(2)})`,
+        message: `Monto insuficiente. Faltan $${(totalOrden - montoAbonado).toFixed(2)} por cubrir.`,
       });
       return;
     }
 
-    const cambioOdevuelto = montoTotalAbonado - totalOrden;
+    const cambio = Math.max(0, Number((montoAbonado - totalOrden).toFixed(2)));
+    const ahora = new Date();
 
-    // Transacción atómica: Pagos + Orden + Mesa + Puntos
-    const resultado = await prisma.$transaction(async (tx) => {
-      // A. Guardar los pagos realizados en Payment
-      const registrosPagos = [];
-      for (const p of pagos) {
-        const nuevoPago = await tx.payment.create({
+    // Buscar el turno abierto del usuario que cobra (o del mesero que abrió la orden)
+    const cobradorId = req.user?.id || orden.usuarioId || null;
+    const turnoActivo = cobradorId
+      ? await prisma.turnoCaja.findFirst({
+          where: {
+            usuarioId: cobradorId,
+            estado: 'abierto',
+          },
+          orderBy: { abiertoEn: 'desc' },
+        })
+      : null;
+
+    await prisma.$transaction(async (tx) => {
+      // 1. Registrar cada línea de pago vinculada al turno activo
+      for (const p of pagosValidos) {
+        await tx.payment.create({
           data: {
-            ordenId: idLimpio,
+            ordenId: orden.id,
             metodoPago: p.metodoPago,
-            monto: p.monto,
-            estado: 'pagado',
-            idTransaccion: p.idTransaccion || null,
-            pagadoEn: new Date(),
+            monto: Number(p.monto),
+            idTransaccion: p.idTransaccion?.trim() || null,
+            turnoId: turnoActivo?.id || null,
+            cobradoPorId: cobradorId,
           },
         });
-        registrosPagos.push(nuevoPago);
       }
 
-      // B. Cambiar estado de la Orden
-      const ordenActualizada = await tx.order.update({
-        where: { id: idLimpio },
+      // 2. Marcar la orden como pagada
+      await tx.order.update({
+        where: { id: orden.id },
+        data: { estado: 'pagado' },
+      });
+
+      // 3. Cerrar pendientes en cocina si se cobró por adelantado
+      await tx.kitchenTime.updateMany({
+        where: {
+          ordenId: orden.id,
+          estadoCocina: { not: 'listo' },
+        },
         data: {
-          estado: 'pagado',
-          impresoCuenta: true,
+          estadoCocina: 'listo',
+          listoEn: ahora,
         },
       });
 
-      // C. Liberar la Mesa automáticamente
+      await tx.orderItem.updateMany({
+        where: {
+          ordenId: orden.id,
+          estadoCocina: { notIn: ['listo', 'cancelado'] },
+        },
+        data: {
+          estadoCocina: 'listo',
+          listoEn: ahora,
+        },
+      });
+
+      // 4. Liberar la mesa si no tiene otras cuentas activas
       if (orden.mesaId) {
-        await tx.table.update({
-          where: { id: orden.mesaId },
-          data: { estado: 'disponible' },
+        const otrasCuentasActivas = await tx.order.count({
+          where: {
+            mesaId: orden.mesaId,
+            id: { not: orden.id },
+            estado: { notIn: ['pagado', 'cancelado'] },
+          },
         });
-      }
 
-      // D. Otorgar Puntos de Lealtad al cliente ($10 MXN = 1 Punto)
-      let puntosOtorgados = 0;
-      if (orden.usuarioId) {
-        puntosOtorgados = Math.floor(totalOrden / 10);
-
-        if (puntosOtorgados > 0) {
-          await tx.user.update({
-            where: { id: orden.usuarioId },
-            data: {
-              puntosAcumulados: {
-                increment: puntosOtorgados,
-              },
-            },
-          });
-
-          await tx.pointsHistory.create({
-            data: {
-              usuarioId: orden.usuarioId,
-              ordenId: idLimpio,
-              registradoPorId: usuarioCajeroId || null,
-              tipoMovimiento: 'ACUMULACION_VENTA',
-              puntos: puntosOtorgados,
-              descripcion: `Puntos por compra del Folio #${orden.folio} ($${totalOrden.toFixed(2)})`,
-            },
+        if (otrasCuentasActivas === 0) {
+          await tx.table.update({
+            where: { id: orden.mesaId },
+            data: { estado: 'disponible' },
           });
         }
       }
-
-      return {
-        orden: ordenActualizada,
-        pagos: registrosPagos,
-        puntosOtorgados,
-      };
     });
 
-    res.status(200).json({
-      message: 'Pago procesado exitosamente. Orden saldada y mesa liberada.',
+    // 5. Notificar en tiempo real a POS, Cocina, Admin y Monitor de Cajas
+    const io = req.app.get('io');
+    if (io) {
+      io.emit('pos:orden-actualizada', {
+        ordenId: orden.id,
+        estado: 'pagado',
+        ordenCompletaLista: false,
+      });
+      io.emit('caja:actualizada', {
+        tipo: 'PAGO_REGISTRADO',
+        ordenId: orden.id,
+        turnoId: turnoActivo?.id || null,
+        usuarioId: cobradorId,
+      });
+    }
+
+    res.status(201).json({
+      message: 'Pago registrado y cuenta cerrada correctamente',
       folio: orden.folio,
       totalOrden,
-      montoAbonado: montoTotalAbonado,
-      cambio: Number(cambioOdevuelto.toFixed(2)),
-      puntosAcumulados: resultado.puntosOtorgados,
-      detallesPago: resultado.pagos,
+      montoAbonado,
+      cambio,
+      puntosAcumulados: 0,
+      turnoVinculado: Boolean(turnoActivo),
     });
   } catch (error) {
-    console.error('Error al procesar pago:', error);
-    res.status(500).json({ message: 'Error interno al registrar el pago' });
+    console.error('Error al registrar pago de la orden:', error);
+    res.status(500).json({ message: 'Error interno al registrar el pago.' });
   }
 };
 

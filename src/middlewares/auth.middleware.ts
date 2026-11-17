@@ -1,6 +1,47 @@
 import { Request, Response, NextFunction } from 'express';
-import jwt from 'jsonwebtoken';
+import jwt, { JwtPayload } from 'jsonwebtoken';
 import { getJwtSecret } from '../config/jwt';
+
+const extraerUsuarioJwt = (
+  decoded: string | JwtPayload,
+): { id: string; rol: string; correoElectronico?: string } | null => {
+  if (typeof decoded === 'string') {
+    return null;
+  }
+
+  const payload = decoded as JwtPayload & {
+    id?: string;
+    userId?: string;
+    rol?: string;
+    role?: string;
+    correoElectronico?: string;
+  };
+
+  const id =
+    typeof payload.id === 'string'
+      ? payload.id
+      : typeof payload.userId === 'string'
+        ? payload.userId
+        : null;
+  const rol =
+    typeof payload.rol === 'string'
+      ? payload.rol
+      : typeof payload.role === 'string'
+        ? payload.role
+        : null;
+
+  if (!id || !rol) {
+    return null;
+  }
+
+  return {
+    id,
+    rol,
+    ...(typeof payload.correoElectronico === 'string'
+      ? { correoElectronico: payload.correoElectronico }
+      : {}),
+  };
+};
 
 // 1. Middleware para validar el Token JWT
 export const autenticarToken = (req: Request, res: Response, next: NextFunction): void => {
@@ -15,25 +56,14 @@ export const autenticarToken = (req: Request, res: Response, next: NextFunction)
   const secret = getJwtSecret();
   try {
     const decoded = jwt.verify(token, secret);
-    if (typeof decoded === 'string') {
+    const usuarioJwt = extraerUsuarioJwt(decoded);
+
+    if (!usuarioJwt) {
       res.status(403).json({ message: 'Token inválido o expirado' });
       return;
     }
 
-    const id = typeof decoded.id === 'string' ? decoded.id : decoded.userId;
-    const rol = typeof decoded.rol === 'string' ? decoded.rol : decoded.role;
-    if (typeof id !== 'string' || typeof rol !== 'string') {
-      res.status(403).json({ message: 'Token inválido o expirado' });
-      return;
-    }
-
-    req.usuario = {
-      id,
-      rol,
-      ...(typeof decoded.correoElectronico === 'string'
-        ? { correoElectronico: decoded.correoElectronico }
-        : {}),
-    };
+    req.usuario = usuarioJwt;
     next();
   } catch {
     res.status(403).json({ message: 'Token inválido o expirado' });

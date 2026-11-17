@@ -11,9 +11,13 @@ import staffRoutes from './staff.routes';
 import personalRoutes from './personal.routes';
 import healthRoutes from './health.routes';
 import pagoRoutes from './pago.routes';
+import adminRoutes from './admin.routes';
+import turnoRoutes from './turno.routes';
 
 const router = Router();
 
+router.use('/v1/turnos', turnoRoutes);
+router.use('/v1/admin', adminRoutes);
 router.use('/health', healthRoutes);
 router.use('/v1/auth', authRoutes);
 router.use('/v1/staff', staffRoutes);

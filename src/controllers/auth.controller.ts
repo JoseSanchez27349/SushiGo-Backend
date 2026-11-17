@@ -36,9 +36,10 @@ export const loginWithPin = async (req: Request, res: Response) => {
 
     // 5. Generar token JWT con vigencia de turno (8 horas)
     const payload = {
-      userId: user.id,
+      id: user.id,
       codigoEmpleado: user.codigoEmpleado!,
-      role: user.rol.nombre, // "Admin", "Cocina", "Mesero"
+      rol: user.rol.nombre,
+      correoElectronico: user.correoElectronico ?? undefined,
     };
 
     const token = jwt.sign(payload, getJwtSecret(), { expiresIn: '8h' });
