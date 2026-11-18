@@ -13,9 +13,12 @@ import healthRoutes from './health.routes';
 import pagoRoutes from './pago.routes';
 import adminRoutes from './admin.routes';
 import turnoRoutes from './turno.routes';
+import carritoRoutes from './carrito.routes';
 
 const router = Router();
 
+
+router.use('/v1/carrito', carritoRoutes);
 router.use('/v1/turnos', turnoRoutes);
 router.use('/v1/admin', adminRoutes);
 router.use('/health', healthRoutes);
