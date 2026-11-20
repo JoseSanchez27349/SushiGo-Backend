@@ -554,4 +554,48 @@ export const cancelarOrden = async (req: Request, res: Response): Promise<void> 
     }
     res.status(500).json({ message: 'Error interno al cancelar la orden' });
   }
+
+
+  
+};
+
+// 5. OBTENER HISTORIAL Y ESTADO EN VIVO DE ÓRDENES DEL CLIENTE MÓVIL
+export const obtenerMisOrdenes = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const r = req as any;
+    const usuarioId = r.usuario?.id || r.user?.id || r.userId;
+
+    if (!usuarioId) {
+      res.status(401).json({ message: 'Usuario no autenticado' });
+      return;
+    }
+
+    const ordenes = await prisma.order.findMany({
+      where: { usuarioId },
+      include: {
+        detalles: {
+          include: {
+            producto: {
+              select: {
+                id: true,
+                nombre: true,
+                descripcion: true,
+                precio: true,
+                urlImagen: true,
+                estaDisponible: true,
+              },
+            },
+          },
+          orderBy: [{ ronda: 'asc' }, { creadoEn: 'asc' }],
+        },
+        tiemposCocina: true,
+      },
+      orderBy: { creadoEn: 'desc' },
+    });
+
+    res.status(200).json({ ordenes });
+  } catch (error) {
+    console.error('Error al obtener las órdenes del cliente:', error);
+    res.status(500).json({ message: 'Error interno al consultar tus pedidos' });
+  }
 };
