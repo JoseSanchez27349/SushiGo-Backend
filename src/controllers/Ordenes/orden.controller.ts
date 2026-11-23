@@ -456,6 +456,21 @@ export const cancelarOrden = async (req: Request, res: Response): Promise<void> 
       if (!orden) {
         throw new Error('La orden no existe');
       }
+      // Validaciones exclusivas para clientes
+if (req.usuario?.rol === 'Cliente') {
+
+  // Verificar que el pedido pertenezca al cliente
+  if (orden.usuarioId !== usuarioId) {
+    throw new Error('No tienes permiso para cancelar este pedido');
+  }
+
+  // Solo permitir cancelar pedidos recibidos
+  if (orden.estado !== 'pendiente') {
+    throw new Error(
+      'Solo puedes cancelar pedidos que estén en estado Recibido'
+    );
+  }
+}
 
       if (orden.estado === 'pagado') {
         throw new Error('No se puede cancelar una orden que ya fue pagada');

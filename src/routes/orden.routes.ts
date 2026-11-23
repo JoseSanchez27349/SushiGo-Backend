@@ -18,7 +18,12 @@ router.get(
 );
 router.post('/', autenticarToken, permitirRoles('Admin', 'Mesero'), crearOrden);
 router.post('/:id/items', autenticarToken, permitirRoles('Admin', 'Mesero'), agregarItemsOrden);
-router.put('/:id/cancelar', autenticarToken, permitirRoles('Admin', 'Mesero'), cancelarOrden);
+router.put(
+  '/:id/cancelar',
+  autenticarToken,
+  permitirRoles('Admin', 'Mesero', 'Cliente'),
+  cancelarOrden
+);
 router.get('/mis-ordenes', autenticarToken, obtenerMisOrdenes);
 
 export default router;
