@@ -2,11 +2,8 @@ import express from 'express';
 import routes from './routes';
 import { errorHandler } from './middlewares/error.middleware';
 import cors from 'cors';
-import authRoutes from './routes/auth.routes';
 
 const app = express();
-
-
 
 // 1. Lectura de JSON
 app.use(cors({
@@ -27,16 +24,16 @@ app.use((req, res, next) => {
   next();
 });
 
-// 2. LOGGER: Imprime en la consola cada petición que entra
+// 2. LOGGER
 app.use((req, res, next) => {
   console.log(`➡️  Petición recibida: [${req.method}] ${req.url}`);
   next();
 });
 
-// Rutas de autenticación, staff y usuarios
+// Rutas
 app.use('/api', routes);
 
-// 4. Manejador 404 en JSON (reemplaza el HTML por defecto)
+// 4. Manejador 404
 app.use((req, res) => {
   console.log(`❌ Ruta NO encontrada: [${req.method}] ${req.url}`);
   res.status(404).json({

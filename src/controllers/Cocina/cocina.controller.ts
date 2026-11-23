@@ -169,10 +169,28 @@ export const cambiarEstadoItemCocina = async (req: Request, res: Response): Prom
 
       return {
         item: itemActualizado,
+        ordenId: itemExistente.ordenId,
         ordenCompletaLista: todosListos,
         estadoOrdenGlobal,
+        estadoCocinaGlobal,
       };
     });
+
+    // 🛠️ EMITIR EVENTO AL POS Y A CAJAS
+    const io = req.app.get('io');
+    if (io) {
+      io.emit('pos:orden-actualizada', {
+        ordenId: resultado.ordenId,
+        estadoCocina: resultado.estadoCocinaGlobal,
+        ordenCompletaLista: resultado.ordenCompletaLista,
+      });
+      if (resultado.ordenCompletaLista) {
+        io.emit('caja:actualizada', {
+          tipo: 'ORDEN_LISTA',
+          ordenId: resultado.ordenId,
+        });
+      }
+    }
 
     res.status(200).json({
       message: resultado.ordenCompletaLista
@@ -244,7 +262,6 @@ export const cambiarEstadoCocina = async (req: Request, res: Response): Promise<
         where: { id: ordenId.trim() },
         data: { estado: estadoLimpio === 'listo' ? 'preparado' : estadoLimpio },
       }),
-      // Sincronizar también todos los ítems pendientes de esa orden
       prisma.orderItem.updateMany({
         where: {
           ordenId: ordenId.trim(),
@@ -257,6 +274,22 @@ export const cambiarEstadoCocina = async (req: Request, res: Response): Promise<
         },
       }),
     ]);
+
+    // 🛠️ EMITIR EVENTO AL POS Y A CAJAS
+    const io = req.app.get('io');
+    if (io) {
+      io.emit('pos:orden-actualizada', {
+        ordenId: ordenId.trim(),
+        estadoCocina: estadoLimpio,
+        ordenCompletaLista: (estadoLimpio === 'listo'),
+      });
+      if (estadoLimpio === 'listo') {
+        io.emit('caja:actualizada', {
+          tipo: 'ORDEN_LISTA',
+          ordenId: ordenId.trim(),
+        });
+      }
+    }
 
     res.status(200).json({
       message: 'Estado de comanda actualizado en cocina',

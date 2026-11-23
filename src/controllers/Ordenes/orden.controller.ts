@@ -30,24 +30,13 @@ export const crearOrden = async (req: Request, res: Response): Promise<void> => 
     const nuevaOrden = await prisma.$transaction(async (tx) => {
       if (mesaId) {
         const mesa = await tx.table.findUnique({ where: { id: Number(mesaId) } });
-        if (!mesa) {
-          throw new Error('La mesa seleccionada no existe');
-        }
-        if (mesa.estado === 'mantenimiento') {
-          throw new Error(`La mesa ${mesa.numeroMesa} se encuentra en mantenimiento`);
-        }
+        if (!mesa) throw new Error('La mesa seleccionada no existe');
+        if (mesa.estado === 'mantenimiento') throw new Error(`La mesa ${mesa.numeroMesa} se encuentra en mantenimiento`);
       }
 
       let subtotalOrden = 0;
-      const detallesProcesados: {
-        productoId: string;
-        cantidad: number;
-        precioUnitario: number;
-        subtotal: number;
-        estadoCocina: string;
-        ronda: number;
-      }[] = [];
-
+      let tiempoTotalPreparacion = 0; // 🛠️ NUEVO: Acumulador de tiempo
+      const detallesProcesados: any[] = [];
       const notasItems: string[] = [];
 
       for (const item of items) {
@@ -60,34 +49,28 @@ export const crearOrden = async (req: Request, res: Response): Promise<void> => 
 
         const producto = await tx.product.findUnique({
           where: { id: prodId },
-          include: {
-            recetas: {
-              include: { ingrediente: true },
-            },
-          },
+          include: { recetas: { include: { ingrediente: true } } },
         });
 
         if (!producto || !producto.estaDisponible) {
           throw new Error(`El producto '${prodId}' no existe o no está disponible`);
         }
 
+        // 🛠️ NUEVO: Sumar tiempo estimado * cantidad
+        const tiempoProducto = (producto as any).tiempoPreparacionMinutos || 15;
+        tiempoTotalPreparacion += tiempoProducto * cant;
+
         for (const receta of producto.recetas) {
           const cantidadRequeridaTotal = Number(receta.cantidadRequerida) * cant;
           const ingrediente = receta.ingrediente;
 
           if (Number(ingrediente.stockActual) < cantidadRequeridaTotal) {
-            throw new Error(
-              `Stock insuficiente de '${ingrediente.nombre}'. Requerido: ${cantidadRequeridaTotal} ${ingrediente.unidadMedida}, Disponible: ${ingrediente.stockActual} ${ingrediente.unidadMedida}`,
-            );
+            throw new Error(`Stock insuficiente de '${ingrediente.nombre}'. Requerido: ${cantidadRequeridaTotal}, Disponible: ${ingrediente.stockActual}`);
           }
 
           await tx.ingredient.update({
             where: { id: ingrediente.id },
-            data: {
-              stockActual: {
-                decrement: cantidadRequeridaTotal,
-              },
-            },
+            data: { stockActual: { decrement: cantidadRequeridaTotal } },
           });
 
           await tx.inventoryMovement.create({
@@ -146,12 +129,11 @@ export const crearOrden = async (req: Request, res: Response): Promise<void> => 
           costoEnvio: envioNum,
           total: totalOrden,
           notas: notasFinales,
-          detalles: {
-            create: detallesProcesados,
-          },
+          detalles: { create: detallesProcesados },
           tiemposCocina: {
             create: {
-              tiempoEstimadoMinutos: 15,
+              // 🛠️ CORRECCIÓN: Usar el tiempo calculado
+              tiempoEstimadoMinutos: tiempoTotalPreparacion > 0 ? tiempoTotalPreparacion : 15,
               estadoCocina: 'en_espera',
             },
           },
@@ -202,14 +184,10 @@ export const crearOrden = async (req: Request, res: Response): Promise<void> => 
 export const obtenerOrdenesActivas = async (_req: Request, res: Response): Promise<void> => {
   try {
     const ordenes = await prisma.order.findMany({
-      where: {
-        estado: { notIn: ['pagado', 'cancelado'] },
-      },
+      where: { estado: { notIn: ['pagado', 'cancelado'] } },
       include: {
         mesa: true,
-        mesero: {
-          select: { id: true, nombre: true, apellido: true },
-        },
+        mesero: { select: { id: true, nombre: true, apellido: true } },
         detalles: {
           include: { producto: true },
           orderBy: [{ ronda: 'asc' }, { creadoEn: 'asc' }],
@@ -246,38 +224,20 @@ export const agregarItemsOrden = async (req: Request, res: Response): Promise<vo
     const ordenActualizada = await prisma.$transaction(async (tx) => {
       const ordenExistente = await tx.order.findUnique({
         where: { id: ordenId.trim() },
-        include: {
-          detalles: true,
-          tiemposCocina: true,
-        },
+        include: { detalles: true, tiemposCocina: true },
       });
 
-      if (!ordenExistente) {
-        throw new Error('La orden especificada no existe');
-      }
-
+      if (!ordenExistente) throw new Error('La orden especificada no existe');
       if (ordenExistente.estado === 'pagado' || ordenExistente.estado === 'cancelado') {
-        throw new Error(
-          `No se pueden agregar productos a una orden en estado '${ordenExistente.estado}'`,
-        );
+        throw new Error(`No se pueden agregar productos a una orden en estado '${ordenExistente.estado}'`);
       }
 
-      const rondaActual = ordenExistente.detalles.reduce(
-        (max, d) => Math.max(max, d.ronda || 1),
-        1,
-      );
+      const rondaActual = ordenExistente.detalles.reduce((max, d) => Math.max(max, d.ronda || 1), 1);
       const nuevaRonda = rondaActual + 1;
 
       let subtotalAdicional = 0;
-      const detallesCrear: {
-        productoId: string;
-        cantidad: number;
-        precioUnitario: number;
-        subtotal: number;
-        estadoCocina: string;
-        ronda: number;
-      }[] = [];
-
+      let tiempoRondaAdicional = 0; // 🛠️ NUEVO: Tiempo de la nueva ronda
+      const detallesCrear: any[] = [];
       const resumenRonda: string[] = [];
 
       for (const item of items) {
@@ -290,34 +250,28 @@ export const agregarItemsOrden = async (req: Request, res: Response): Promise<vo
 
         const producto = await tx.product.findUnique({
           where: { id: prodId },
-          include: {
-            recetas: {
-              include: { ingrediente: true },
-            },
-          },
+          include: { recetas: { include: { ingrediente: true } } },
         });
 
         if (!producto || !producto.estaDisponible) {
           throw new Error(`El producto '${prodId}' no existe o no está disponible`);
         }
 
+        // 🛠️ NUEVO: Sumar tiempo estimado * cantidad de la nueva ronda
+        const tiempoProducto = (producto as any).tiempoPreparacionMinutos || 15;
+        tiempoRondaAdicional += tiempoProducto * cant;
+
         for (const receta of producto.recetas) {
           const cantidadRequeridaTotal = Number(receta.cantidadRequerida) * cant;
           const ingrediente = receta.ingrediente;
 
           if (Number(ingrediente.stockActual) < cantidadRequeridaTotal) {
-            throw new Error(
-              `Stock insuficiente de '${ingrediente.nombre}'. Requerido: ${cantidadRequeridaTotal} ${ingrediente.unidadMedida}, Disponible: ${ingrediente.stockActual} ${ingrediente.unidadMedida}`,
-            );
+            throw new Error(`Stock insuficiente de '${ingrediente.nombre}'. Requerido: ${cantidadRequeridaTotal}, Disponible: ${ingrediente.stockActual}`);
           }
 
           await tx.ingredient.update({
             where: { id: ingrediente.id },
-            data: {
-              stockActual: {
-                decrement: cantidadRequeridaTotal,
-              },
-            },
+            data: { stockActual: { decrement: cantidadRequeridaTotal } },
           });
 
           await tx.inventoryMovement.create({
@@ -353,16 +307,10 @@ export const agregarItemsOrden = async (req: Request, res: Response): Promise<vo
         }
       }
 
-      const etiquetaRonda = `[Ronda ${nuevaRonda}: ${resumenRonda.join(', ')}${
-        notas && String(notas).trim() ? ` · ${String(notas).trim()}` : ''
-      }]`;
-      const notasActualizadas = ordenExistente.notas
-        ? `${ordenExistente.notas} | ${etiquetaRonda}`
-        : etiquetaRonda;
+      const etiquetaRonda = `[Ronda ${nuevaRonda}: ${resumenRonda.join(', ')}${notas && String(notas).trim() ? ` · ${String(notas).trim()}` : ''}]`;
+      const notasActualizadas = ordenExistente.notas ? `${ordenExistente.notas} | ${etiquetaRonda}` : etiquetaRonda;
 
-      const hayAvancePrevio = ordenExistente.detalles.some(
-        (d) => d.estadoCocina === 'en_preparacion' || d.estadoCocina === 'listo',
-      );
+      const hayAvancePrevio = ordenExistente.detalles.some((d) => d.estadoCocina === 'en_preparacion' || d.estadoCocina === 'listo');
       const nuevoEstadoOrden = hayAvancePrevio ? 'en_preparacion' : 'pendiente';
 
       const orden = await tx.order.update({
@@ -372,9 +320,7 @@ export const agregarItemsOrden = async (req: Request, res: Response): Promise<vo
           subtotal: { increment: subtotalAdicional },
           total: { increment: subtotalAdicional },
           notas: notasActualizadas,
-          detalles: {
-            create: detallesCrear,
-          },
+          detalles: { create: detallesCrear },
         },
         include: {
           detalles: {
@@ -385,15 +331,20 @@ export const agregarItemsOrden = async (req: Request, res: Response): Promise<vo
         },
       });
 
+      // 🛠️ CORRECCIÓN: Si es una ronda nueva, sumar su tiempo al tiempo existente
       await tx.kitchenTime.upsert({
         where: { ordenId: orden.id },
         update: {
           estadoCocina: hayAvancePrevio ? 'en_preparacion' : 'en_espera',
           listoEn: null,
+          // Sumamos el tiempo de la nueva ronda al tiempo que ya tenía la comanda
+          tiempoEstimadoMinutos: {
+            increment: tiempoRondaAdicional > 0 ? tiempoRondaAdicional : 15,
+          },
         },
         create: {
           ordenId: orden.id,
-          tiempoEstimadoMinutos: 15,
+          tiempoEstimadoMinutos: tiempoRondaAdicional > 0 ? tiempoRondaAdicional : 15,
           estadoCocina: 'en_espera',
         },
       });
@@ -423,7 +374,7 @@ export const agregarItemsOrden = async (req: Request, res: Response): Promise<vo
   }
 };
 
-// 4. CANCELAR ORDEN (REINTEGRA INVENTARIO, RETIRA DE COCINA Y LIBERA MESA)
+// 4. CANCELAR ORDEN
 export const cancelarOrden = async (req: Request, res: Response): Promise<void> => {
   try {
     const ordenId = req.params.id;
@@ -439,31 +390,13 @@ export const cancelarOrden = async (req: Request, res: Response): Promise<void> 
       const orden = await tx.order.findUnique({
         where: { id: ordenId.trim() },
         include: {
-          detalles: {
-            include: {
-              producto: {
-                include: {
-                  recetas: {
-                    include: { ingrediente: true },
-                  },
-                },
-              },
-            },
-          },
+          detalles: { include: { producto: { include: { recetas: { include: { ingrediente: true } } } } } },
         },
       });
 
-      if (!orden) {
-        throw new Error('La orden no existe');
-      }
-
-      if (orden.estado === 'pagado') {
-        throw new Error('No se puede cancelar una orden que ya fue pagada');
-      }
-
-      if (orden.estado === 'cancelado') {
-        throw new Error('Esta orden ya se encuentra cancelada');
-      }
+      if (!orden) throw new Error('La orden no existe');
+      if (orden.estado === 'pagado') throw new Error('No se puede cancelar una orden que ya fue pagada');
+      if (orden.estado === 'cancelado') throw new Error('Esta orden ya se encuentra cancelada');
 
       for (const detalle of orden.detalles) {
         for (const receta of detalle.producto.recetas) {
@@ -472,11 +405,7 @@ export const cancelarOrden = async (req: Request, res: Response): Promise<void> 
 
           await tx.ingredient.update({
             where: { id: ingrediente.id },
-            data: {
-              stockActual: {
-                increment: cantidadDevolver,
-              },
-            },
+            data: { stockActual: { increment: cantidadDevolver } },
           });
 
           await tx.inventoryMovement.create({
@@ -492,54 +421,30 @@ export const cancelarOrden = async (req: Request, res: Response): Promise<void> 
         }
       }
 
-      const textoMotivo =
-        motivo && String(motivo).trim() ? String(motivo).trim() : 'Sin motivo especificado';
-      const notasCancelacion = orden.notas
-        ? `${orden.notas} | [CANCELADA: ${textoMotivo}]`
-        : `[CANCELADA: ${textoMotivo}]`;
+      const textoMotivo = motivo && String(motivo).trim() ? String(motivo).trim() : 'Sin motivo especificado';
+      const notasCancelacion = orden.notas ? `${orden.notas} | [CANCELADA: ${textoMotivo}]` : `[CANCELADA: ${textoMotivo}]`;
 
       const ordenActualizada = await tx.order.update({
         where: { id: orden.id },
-        data: {
-          estado: 'cancelado',
-          notas: notasCancelacion,
-        },
+        data: { estado: 'cancelado', notas: notasCancelacion },
       });
 
-      await tx.orderItem.updateMany({
-        where: { ordenId: orden.id },
-        data: { estadoCocina: 'cancelado' },
-      });
-
-      await tx.kitchenTime.updateMany({
-        where: { ordenId: orden.id },
-        data: { estadoCocina: 'cancelado' },
-      });
+      await tx.orderItem.updateMany({ where: { ordenId: orden.id }, data: { estadoCocina: 'cancelado' } });
+      await tx.kitchenTime.updateMany({ where: { ordenId: orden.id }, data: { estadoCocina: 'cancelado' } });
 
       if (orden.mesaId) {
         const otrasOrdenesActivas = await tx.order.count({
-          where: {
-            mesaId: orden.mesaId,
-            id: { not: orden.id },
-            estado: { notIn: ['pagado', 'cancelado'] },
-          },
+          where: { mesaId: orden.mesaId, id: { not: orden.id }, estado: { notIn: ['pagado', 'cancelado'] } },
         });
-
         if (otrasOrdenesActivas === 0) {
-          await tx.table.update({
-            where: { id: orden.mesaId },
-            data: { estado: 'disponible' },
-          });
+          await tx.table.update({ where: { id: orden.mesaId }, data: { estado: 'disponible' } });
         }
       }
 
       return ordenActualizada;
     });
 
-    emitEvent('cocina:orden-cancelada', {
-      ordenId: ordenCancelada.id,
-      folio: ordenCancelada.folio,
-    });
+    emitEvent('cocina:orden-cancelada', { ordenId: ordenCancelada.id, folio: ordenCancelada.folio });
     emitEvent('pos:orden-actualizada', { ordenId: ordenCancelada.id });
 
     res.status(200).json({
@@ -554,12 +459,9 @@ export const cancelarOrden = async (req: Request, res: Response): Promise<void> 
     }
     res.status(500).json({ message: 'Error interno al cancelar la orden' });
   }
-
-
-  
 };
 
-// 5. OBTENER HISTORIAL Y ESTADO EN VIVO DE ÓRDENES DEL CLIENTE MÓVIL
+// 5. OBTENER HISTORIAL
 export const obtenerMisOrdenes = async (req: Request, res: Response): Promise<void> => {
   try {
     const r = req as any;
@@ -574,18 +476,7 @@ export const obtenerMisOrdenes = async (req: Request, res: Response): Promise<vo
       where: { usuarioId },
       include: {
         detalles: {
-          include: {
-            producto: {
-              select: {
-                id: true,
-                nombre: true,
-                descripcion: true,
-                precio: true,
-                urlImagen: true,
-                estaDisponible: true,
-              },
-            },
-          },
+          include: { producto: { select: { id: true, nombre: true, descripcion: true, precio: true, urlImagen: true, estaDisponible: true } } },
           orderBy: [{ ronda: 'asc' }, { creadoEn: 'asc' }],
         },
         tiemposCocina: true,
