@@ -9,10 +9,6 @@ interface AuthRequest extends Request {
   };
 }
 
-/**
- * Calcula los totales financieros reales de un turno en curso o cerrado.
- * Descuenta el cambio devuelto al cliente para saber el efectivo neto exacto en gaveta.
- */
 async function calcularResumenTurno(turnoId: string) {
   const turno = await prisma.turnoCaja.findUnique({
     where: { id: turnoId },
@@ -32,7 +28,6 @@ async function calcularResumenTurno(turnoId: string) {
 
   if (!turno) return null;
 
-  // Agrupar pagos por orden para descontar cambio dado en efectivo
   const ordenesMap = new Map<
     string,
     {
@@ -74,7 +69,6 @@ async function calcularResumenTurno(turnoId: string) {
   for (const ord of ordenesMap.values()) {
     ventasTarjeta += ord.tarjeta;
     ventasTransferencia += ord.transferencia;
-    // El efectivo real que se queda en gaveta es el restante cubierto en efectivo
     const restanteEnEfectivo = Math.max(
       0,
       ord.totalOrden - ord.tarjeta - ord.transferencia,
@@ -324,7 +318,6 @@ export const cerrarTurnoCaja = async (
       return;
     }
 
-    // Validar que el mesero no tenga órdenes abiertas asignadas sin cobrar (opcional advertencia)
     const esperado = resumenPrevio.efectivoEnGavetaEsperado;
     const diferencia = Number((contadoNum - esperado).toFixed(2));
 
@@ -364,16 +357,25 @@ export const cerrarTurnoCaja = async (
   }
 };
 
-// 5. Monitoreo en tiempo real para el Administrador
+// 5. Monitoreo en tiempo real para el Administrador (con filtro de fecha)
 export const obtenerMonitoreoTurnosAdmin = async (
-  _req: Request,
+  req: Request,
   res: Response,
 ): Promise<void> => {
   try {
-    const inicioDia = new Date();
-    inicioDia.setHours(0, 0, 0, 0);
+    const { fecha } = req.query;
 
-    const [turnosAbiertosRaw, turnosCerradosHoyRaw, meseros] = await Promise.all([
+    let inicioDia = new Date();
+    if (fecha && typeof fecha === 'string') {
+      inicioDia = new Date(fecha + 'T00:00:00'); 
+    } else {
+      inicioDia.setHours(0, 0, 0, 0);
+    }
+
+    const finDia = new Date(inicioDia);
+    finDia.setHours(23, 59, 59, 999);
+
+    const [turnosAbiertosRaw, turnosCerradosRaw, meseros] = await Promise.all([
       prisma.turnoCaja.findMany({
         where: { estado: 'abierto' },
         orderBy: { abiertoEn: 'asc' },
@@ -381,15 +383,13 @@ export const obtenerMonitoreoTurnosAdmin = async (
       prisma.turnoCaja.findMany({
         where: {
           estado: 'cerrado',
-          cerradoEn: { gte: inicioDia },
+          cerradoEn: { gte: inicioDia, lte: finDia },
         },
         orderBy: { cerradoEn: 'desc' },
       }),
       prisma.user.findMany({
         where: {
-          rol: {
-            nombre: { in: ['Mesero', 'Cajero', 'Admin'] },
-          },
+          rol: { nombre: { in: ['Mesero', 'Cajero', 'Admin'] } },
           estaActivo: true,
         },
         select: {
@@ -405,19 +405,15 @@ export const obtenerMonitoreoTurnosAdmin = async (
       await Promise.all(turnosAbiertosRaw.map((t) => calcularResumenTurno(t.id)))
     ).filter(Boolean);
 
-    const turnosCerradosHoy = (
-      await Promise.all(turnosCerradosHoyRaw.map((t) => calcularResumenTurno(t.id)))
+    const turnosCerrados = (
+      await Promise.all(turnosCerradosRaw.map((t) => calcularResumenTurno(t.id)))
     ).filter(Boolean);
 
     const idsConTurnoAbierto = new Set(turnosAbiertosRaw.map((t) => t.usuarioId));
     const personalSinTurno = meseros
       .filter((m) => !idsConTurnoAbierto.has(m.id))
-      .map((m) => ({
-        ...m,
-        rol: m.rol?.nombre ?? null,
-      }));
+      .map((m) => ({ ...m, rol: m.rol?.nombre ?? null }));
 
-    // Totales consolidados de todos los turnos activos en este momento
     const resumenGlobalActivo = turnosAbiertos.reduce(
       (acc, t: any) => {
         acc.fondosAsignados += t.fondoInicial;
@@ -439,11 +435,43 @@ export const obtenerMonitoreoTurnosAdmin = async (
     res.status(200).json({
       resumenGlobalActivo,
       turnosAbiertos,
-      turnosCerradosHoy,
+      turnosCerradosHoy: turnosCerrados,
       personalSinTurno,
     });
   } catch (error) {
     console.error('Error en monitoreo de turnos admin:', error);
     res.status(500).json({ message: 'Error al obtener monitoreo de cajas.' });
+  }
+};
+
+// 6. 🛠️ NUEVO: Historial de cortes del mesero autenticado
+export const obtenerMiHistorial = async (
+  req: AuthRequest,
+  res: Response,
+): Promise<void> => {
+  try {
+    const usuarioId = req.usuario?.id;
+    if (!usuarioId) {
+      res.status(401).json({ message: 'No autenticado' });
+      return;
+    }
+
+    const turnosCerrados = await prisma.turnoCaja.findMany({
+      where: {
+        usuarioId,
+        estado: 'cerrado',
+      },
+      orderBy: { cerradoEn: 'desc' },
+      take: 30,
+    });
+
+    const historial = (
+      await Promise.all(turnosCerrados.map((t) => calcularResumenTurno(t.id)))
+    ).filter(Boolean);
+
+    res.status(200).json({ historial });
+  } catch (error) {
+    console.error('Error al obtener historial del mesero:', error);
+    res.status(500).json({ message: 'Error al consultar el historial.' });
   }
 };

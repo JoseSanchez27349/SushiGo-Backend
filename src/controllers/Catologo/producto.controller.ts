@@ -5,7 +5,7 @@ import prisma from '../../config/prisma';
 // 1. CREAR PRODUCTO
 export const crearProducto = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { categoriaId, nombre, descripcion, precio, urlImagen, estaDisponible } = req.body;
+    const { categoriaId, nombre, descripcion, precio, urlImagen, estaDisponible, tiempoPreparacionMinutos } = req.body;
 
     if (!categoriaId || !nombre || precio === undefined) {
       res.status(400).json({ message: 'Los campos categoriaId, nombre y precio son obligatorios' });
@@ -19,9 +19,7 @@ export const crearProducto = async (req: Request, res: Response): Promise<void> 
     }
 
     if (nombre.length > 100) {
-      res
-        .status(400)
-        .json({ message: 'El nombre del producto no puede exceder los 100 caracteres' });
+      res.status(400).json({ message: 'El nombre del producto no puede exceder los 100 caracteres' });
       return;
     }
 
@@ -50,6 +48,7 @@ export const crearProducto = async (req: Request, res: Response): Promise<void> 
         precio: precioNum,
         urlImagen,
         estaDisponible: typeof estaDisponible === 'boolean' ? estaDisponible : true,
+        tiempoPreparacionMinutos: tiempoPreparacionMinutos ? Number(tiempoPreparacionMinutos) : 15, // 👈 NUEVO
       },
       include: {
         categoria: { select: { id: true, nombre: true, slug: true } },
@@ -63,7 +62,7 @@ export const crearProducto = async (req: Request, res: Response): Promise<void> 
   }
 };
 
-// 2. LISTAR PRODUCTOS (Filtro opcional por categoría o disponibilidad + cálculo de stock BOM)
+// 2. LISTAR PRODUCTOS
 export const obtenerProductos = async (req: Request, res: Response): Promise<void> => {
   try {
     const { categoriaId, disponible } = req.query;
@@ -124,7 +123,7 @@ export const obtenerProductos = async (req: Request, res: Response): Promise<voi
 
       return {
         ...prod,
-        porcionesDisponibles, // Ej: 0 si hay 90g y pide 100g | null si no tiene receta asignada
+        porcionesDisponibles,
         disponibleParaVenta: prod.estaDisponible && tieneInsumosSuficientes,
       };
     });
@@ -135,6 +134,7 @@ export const obtenerProductos = async (req: Request, res: Response): Promise<voi
     res.status(500).json({ message: 'Error interno del servidor' });
   }
 };
+
 // 3. OBTENER PRODUCTO POR ID
 export const obtenerProductoPorId = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -174,7 +174,7 @@ export const actualizarProducto = async (req: Request, res: Response): Promise<v
       res.status(400).json({ message: 'El ID del producto debe ser un texto válido' });
       return;
     }
-    const { categoriaId, nombre, descripcion, precio, urlImagen, estaDisponible } = req.body;
+    const { categoriaId, nombre, descripcion, precio, urlImagen, estaDisponible, tiempoPreparacionMinutos } = req.body;
 
     const productoExistente = await prisma.product.findUnique({ where: { id } });
     if (!productoExistente) {
@@ -194,9 +194,7 @@ export const actualizarProducto = async (req: Request, res: Response): Promise<v
 
     if (urlImagen !== undefined) {
       if (urlImagen && urlImagen.length > 255) {
-        res
-          .status(400)
-          .json({ message: 'La URL de la imagen no puede exceder los 255 caracteres' });
+        res.status(400).json({ message: 'La URL de la imagen no puede exceder los 255 caracteres' });
         return;
       }
       datosActualizacion.urlImagen = urlImagen;
@@ -204,6 +202,11 @@ export const actualizarProducto = async (req: Request, res: Response): Promise<v
 
     if (descripcion !== undefined) datosActualizacion.descripcion = descripcion;
     if (typeof estaDisponible === 'boolean') datosActualizacion.estaDisponible = estaDisponible;
+    
+    // 👈 NUEVO CAMPO
+    if (tiempoPreparacionMinutos !== undefined) {
+      datosActualizacion.tiempoPreparacionMinutos = Number(tiempoPreparacionMinutos);
+    }
 
     if (precio !== undefined) {
       const precioNum = Number(precio);
@@ -236,9 +239,7 @@ export const actualizarProducto = async (req: Request, res: Response): Promise<v
       },
     });
 
-    res
-      .status(200)
-      .json({ message: 'Producto actualizado exitosamente', producto: productoActualizado });
+    res.status(200).json({ message: 'Producto actualizado exitosamente', producto: productoActualizado });
   } catch (error) {
     console.error('Error al actualizar producto:', error);
     res.status(500).json({ message: 'Error interno del servidor' });
@@ -270,8 +271,7 @@ export const eliminarProducto = async (req: Request, res: Response): Promise<voi
           data: { estaDisponible: false },
         });
         res.status(200).json({
-          message:
-            'El producto está vinculado a historial de órdenes o carritos. Se deshabilitó su disponibilidad en su lugar.',
+          message: 'El producto está vinculado a historial de órdenes o carritos. Se deshabilitó su disponibilidad en su lugar.',
         });
         return;
       }

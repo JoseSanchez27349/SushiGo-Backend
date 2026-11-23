@@ -110,15 +110,16 @@ model Category {
 }
 
 model Product {
-  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  categoriaId    Int      @map("categoria_id")
-  nombre         String   @db.VarChar(100)
-  descripcion    String?  @db.Text
-  precio         Decimal  @db.Decimal(10, 2)
-  urlImagen      String?  @map("url_imagen") @db.VarChar(255)
-  estaDisponible Boolean  @default(true) @map("esta_disponible")
-  creadoEn       DateTime @default(now()) @map("creado_en") @db.Timestamptz
-  actualizadoEn  DateTime @updatedAt @map("actualizado_en") @db.Timestamptz
+  id                        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  categoriaId               Int      @map("categoria_id")
+  nombre                    String   @db.VarChar(100)
+  descripcion               String?  @db.Text
+  precio                    Decimal  @db.Decimal(10, 2)
+  urlImagen                 String?  @map("url_imagen") @db.VarChar(255)
+  estaDisponible            Boolean  @default(true) @map("esta_disponible")
+  tiempoPreparacionMinutos  Int      @default(15) @map("tiempo_preparacion_minutos") // 👈 NUEVO CAMPO
+  creadoEn                  DateTime @default(now()) @map("creado_en") @db.Timestamptz
+  actualizadoEn             DateTime @updatedAt @map("actualizado_en") @db.Timestamptz
 
   categoria Category    @relation(fields: [categoriaId], references: [id], onDelete: Restrict)
   recetas   Recipe[]
