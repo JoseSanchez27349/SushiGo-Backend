@@ -5,6 +5,7 @@ import {
   registrarMovimientoCaja,
   cerrarTurnoCaja,
   obtenerMonitoreoTurnosAdmin,
+  obtenerMiHistorial, // 🛠️ NUEVO: Importar la función
 } from '../controllers/Caja/turno.controller';
 import { autenticarToken, permitirRoles } from '../middlewares/auth.middleware';
 
@@ -22,6 +23,14 @@ router.get(
   autenticarToken,
   permitirRoles('Admin', 'Mesero'),
   obtenerMiTurnoActivo,
+);
+
+// 🛠️ NUEVO: Ruta para el historial del mesero
+router.get(
+  '/mi-historial',
+  autenticarToken,
+  permitirRoles('Admin', 'Mesero'),
+  obtenerMiHistorial,
 );
 
 router.post(

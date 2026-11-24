@@ -1,5 +1,6 @@
 import { Server as HttpServer } from 'http';
 import { Server, Socket } from 'socket.io';
+import app from '../app'; // 🛠️ Importamos la app de Express
 
 let io: Server | null = null;
 
@@ -11,6 +12,10 @@ export const initSocket = (httpServer: HttpServer): Server => {
       credentials: true,
     },
   });
+
+  // 🛠️ CLAVE: Vincular io a la app de Express
+  // Esto es lo que hace que `req.app.get('io')` funcione en tus controladores
+  app.set('io', io);
 
   io.on('connection', (socket: Socket) => {
     console.log(`🔌 Cliente conectado a tiempo real: ${socket.id}`);
@@ -30,7 +35,6 @@ export const getIO = (): Server => {
   return io;
 };
 
-// Helper seguro para emitir sin romper controladores si el socket aún no inicia
 export const emitEvent = (evento: string, payload: unknown): void => {
   if (io) {
     io.emit(evento, payload);

@@ -202,8 +202,26 @@ export const cambiarEstadoItemCocina = async (
         ordenId: itemExistente.ordenId,
         ordenCompletaLista: todosListos,
         estadoOrdenGlobal,
+        estadoCocinaGlobal,
       };
     });
+
+
+    // 🛠️ EMITIR EVENTO AL POS Y A CAJAS
+    const io = req.app.get('io');
+    if (io) {
+      io.emit('pos:orden-actualizada', {
+        ordenId: resultado.ordenId,
+        estadoCocina: resultado.estadoCocinaGlobal,
+        ordenCompletaLista: resultado.ordenCompletaLista,
+      });
+      if (resultado.ordenCompletaLista) {
+        io.emit('caja:actualizada', {
+          tipo: 'ORDEN_LISTA',
+          ordenId: resultado.ordenId,
+        });
+      }
+    }
 
     // AVISAR A LOS CLIENTES QUE EL ESTADO CAMBIÓ
     emitEvent('pedido:estado_actualizado', {
@@ -211,6 +229,7 @@ export const cambiarEstadoItemCocina = async (
       estado: resultado.estadoOrdenGlobal,
       listo: resultado.ordenCompletaLista,
     });
+
 
     res.status(200).json({
       message: resultado.ordenCompletaLista
@@ -305,7 +324,9 @@ export const cambiarEstadoCocina = async (
         },
       }),
 
+
       // Sincronizar los platillos de la orden
+
       prisma.orderItem.updateMany({
         where: {
           ordenId: ordenId.trim(),
@@ -323,6 +344,22 @@ export const cambiarEstadoCocina = async (
       }),
     ]);
 
+
+    // 🛠️ EMITIR EVENTO AL POS Y A CAJAS
+    const io = req.app.get('io');
+    if (io) {
+      io.emit('pos:orden-actualizada', {
+        ordenId: ordenId.trim(),
+        estadoCocina: estadoLimpio,
+        ordenCompletaLista: (estadoLimpio === 'listo'),
+      });
+      if (estadoLimpio === 'listo') {
+        io.emit('caja:actualizada', {
+          tipo: 'ORDEN_LISTA',
+          ordenId: ordenId.trim(),
+        });
+      }
+    }
     // AVISAR A LOS CLIENTES QUE EL ESTADO CAMBIÓ
     emitEvent('pedido:estado_actualizado', {
       ordenId: ordenId.trim(),
@@ -330,6 +367,7 @@ export const cambiarEstadoCocina = async (
         estadoLimpio === 'listo' ? 'preparado' : estadoLimpio,
       listo: estadoLimpio === 'listo',
     });
+
 
     res.status(200).json({
       message: 'Estado de comanda actualizado en cocina',
