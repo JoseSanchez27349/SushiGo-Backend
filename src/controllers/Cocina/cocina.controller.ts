@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { Prisma } from '@prisma/client';
 import prisma from '../../config/prisma';
+import { emitEvent } from '../../config/socket';
 
 type NivelAlerta = 'normal' | 'advertencia' | 'critico';
 
@@ -18,7 +19,12 @@ export const calcularContadorEnVivo = (
   const minutosTranscurridos = inicioPreparacionEn
     ? Math.max(0, Math.floor((ahora - inicioPreparacionEn.getTime()) / 60_000))
     : 0;
-  const minutosRestantes = Math.max(0, tiempoEstimadoMinutos - minutosTranscurridos);
+
+  const minutosRestantes = Math.max(
+    0,
+    tiempoEstimadoMinutos - minutosTranscurridos,
+  );
+
   const estaRetrasada = minutosTranscurridos > tiempoEstimadoMinutos;
 
   return {
@@ -26,12 +32,19 @@ export const calcularContadorEnVivo = (
     minutosRestantes,
     tiempoEstimadoMinutos,
     estaRetrasada,
-    nivelAlerta: estaRetrasada ? 'critico' : minutosTranscurridos >= 10 ? 'advertencia' : 'normal',
+    nivelAlerta: estaRetrasada
+      ? 'critico'
+      : minutosTranscurridos >= 10
+        ? 'advertencia'
+        : 'normal',
   };
 };
 
 // 1. OBTENER COMANDAS EN PANTALLA DE COCINA
-export const obtenerComandasCocina = async (_req: Request, res: Response): Promise<void> => {
+export const obtenerComandasCocina = async (
+  _req: Request,
+  res: Response,
+): Promise<void> => {
   try {
     const comandas = await prisma.kitchenTime.findMany({
       where: {
@@ -69,8 +82,11 @@ export const obtenerComandasCocina = async (_req: Request, res: Response): Promi
   }
 };
 
-// 2. CAMBIAR ESTADO DE UN PLATILLO INDIVIDUAL (OrderItem)
-export const cambiarEstadoItemCocina = async (req: Request, res: Response): Promise<void> => {
+// 2. CAMBIAR ESTADO DE UN PLATILLO INDIVIDUAL
+export const cambiarEstadoItemCocina = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
   try {
     const itemId = req.params.itemId;
     const { estadoCocina } = req.body;
@@ -82,8 +98,14 @@ export const cambiarEstadoItemCocina = async (req: Request, res: Response): Prom
     }
 
     const estadosValidos = ['en_espera', 'en_preparacion', 'listo'];
-    if (typeof estadoCocina !== 'string' || !estadosValidos.includes(estadoCocina.toLowerCase())) {
-      res.status(400).json({ message: `Estado inválido. Opciones: ${estadosValidos.join(', ')}` });
+
+    if (
+      typeof estadoCocina !== 'string' ||
+      !estadosValidos.includes(estadoCocina.toLowerCase())
+    ) {
+      res.status(400).json({
+        message: `Estado inválido. Opciones: ${estadosValidos.join(', ')}`,
+      });
       return;
     }
 
@@ -102,7 +124,10 @@ export const cambiarEstadoItemCocina = async (req: Request, res: Response): Prom
         estadoCocina: estadoLimpio,
       };
 
-      if (estadoLimpio === 'en_preparacion' && !itemExistente.inicioPreparacionEn) {
+      if (
+        estadoLimpio === 'en_preparacion' &&
+        !itemExistente.inicioPreparacionEn
+      ) {
         datosItem.inicioPreparacionEn = new Date();
       }
 
@@ -118,7 +143,7 @@ export const cambiarEstadoItemCocina = async (req: Request, res: Response): Prom
         include: { producto: true },
       });
 
-      // Evaluar estado global de todos los platillos de la orden
+      // Evaluar estado global de todos los platillos
       const todosLosItems = await tx.orderItem.findMany({
         where: {
           ordenId: itemExistente.ordenId,
@@ -126,9 +151,14 @@ export const cambiarEstadoItemCocina = async (req: Request, res: Response): Prom
         },
       });
 
-      const todosListos = todosLosItems.length > 0 && todosLosItems.every((i) => i.estadoCocina === 'listo');
+      const todosListos =
+        todosLosItems.length > 0 &&
+        todosLosItems.every((i) => i.estadoCocina === 'listo');
+
       const algunoEnProcesoOListo = todosLosItems.some(
-        (i) => i.estadoCocina === 'en_preparacion' || i.estadoCocina === 'listo',
+        (i) =>
+          i.estadoCocina === 'en_preparacion' ||
+          i.estadoCocina === 'listo',
       );
 
       const estadoCocinaGlobal = todosListos
@@ -176,6 +206,7 @@ export const cambiarEstadoItemCocina = async (req: Request, res: Response): Prom
       };
     });
 
+
     // 🛠️ EMITIR EVENTO AL POS Y A CAJAS
     const io = req.app.get('io');
     if (io) {
@@ -192,6 +223,14 @@ export const cambiarEstadoItemCocina = async (req: Request, res: Response): Prom
       }
     }
 
+    // AVISAR A LOS CLIENTES QUE EL ESTADO CAMBIÓ
+    emitEvent('pedido:estado_actualizado', {
+      ordenId: resultado.ordenId,
+      estado: resultado.estadoOrdenGlobal,
+      listo: resultado.ordenCompletaLista,
+    });
+
+
     res.status(200).json({
       message: resultado.ordenCompletaLista
         ? 'Platillo listo y orden completa liberada para cobro'
@@ -200,29 +239,42 @@ export const cambiarEstadoItemCocina = async (req: Request, res: Response): Prom
     });
   } catch (error) {
     console.error('Error al actualizar platillo en cocina:', error);
+
     if (error instanceof Error) {
       res.status(400).json({ message: error.message });
       return;
     }
+
     res.status(500).json({ message: 'Error interno del servidor' });
   }
 };
 
-// 3. CAMBIAR ESTADO DE TODA LA COMANDA EN BLOQUE (en_espera -> en_preparacion -> listo)
-export const cambiarEstadoCocina = async (req: Request, res: Response): Promise<void> => {
+// 3. CAMBIAR ESTADO DE TODA LA COMANDA EN BLOQUE
+export const cambiarEstadoCocina = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
   try {
     const ordenId = req.params.ordenId;
     const { estadoCocina } = req.body;
     const cocineroId = req.usuario?.id;
 
-    if (typeof ordenId !== 'string') {
-      res.status(400).json({ message: 'El ID de la orden debe ser un texto válido' });
+    if (typeof ordenId !== 'string' || !ordenId.trim()) {
+      res.status(400).json({
+        message: 'El ID de la orden debe ser un texto válido',
+      });
       return;
     }
 
     const estadosValidos = ['en_espera', 'en_preparacion', 'listo'];
-    if (typeof estadoCocina !== 'string' || !estadosValidos.includes(estadoCocina.toLowerCase())) {
-      res.status(400).json({ message: `Estado inválido. Opciones: ${estadosValidos.join(', ')}` });
+
+    if (
+      typeof estadoCocina !== 'string' ||
+      !estadosValidos.includes(estadoCocina.toLowerCase())
+    ) {
+      res.status(400).json({
+        message: `Estado inválido. Opciones: ${estadosValidos.join(', ')}`,
+      });
       return;
     }
 
@@ -233,17 +285,23 @@ export const cambiarEstadoCocina = async (req: Request, res: Response): Promise<
     });
 
     if (!tiempoCocinaExiste) {
-      res.status(404).json({ message: 'Registro de cocina no encontrado para esta orden' });
+      res.status(404).json({
+        message: 'Registro de cocina no encontrado para esta orden',
+      });
       return;
     }
 
     const ahora = new Date();
+
     const datosActualizacion: Prisma.KitchenTimeUncheckedUpdateInput = {
       estadoCocina: estadoLimpio,
       cocineroId: cocineroId || tiempoCocinaExiste.cocineroId,
     };
 
-    if (estadoLimpio === 'en_preparacion' && !tiempoCocinaExiste.inicioPreparacionEn) {
+    if (
+      estadoLimpio === 'en_preparacion' &&
+      !tiempoCocinaExiste.inicioPreparacionEn
+    ) {
       datosActualizacion.inicioPreparacionEn = ahora;
     }
 
@@ -258,10 +316,17 @@ export const cambiarEstadoCocina = async (req: Request, res: Response): Promise<
         where: { ordenId: ordenId.trim() },
         data: datosActualizacion,
       }),
+
       prisma.order.update({
         where: { id: ordenId.trim() },
-        data: { estado: estadoLimpio === 'listo' ? 'preparado' : estadoLimpio },
+        data: {
+          estado: estadoLimpio === 'listo' ? 'preparado' : estadoLimpio,
+        },
       }),
+
+
+      // Sincronizar los platillos de la orden
+
       prisma.orderItem.updateMany({
         where: {
           ordenId: ordenId.trim(),
@@ -269,11 +334,16 @@ export const cambiarEstadoCocina = async (req: Request, res: Response): Promise<
         },
         data: {
           estadoCocina: estadoLimpio,
-          ...(estadoLimpio === 'en_preparacion' ? { inicioPreparacionEn: ahora } : {}),
-          ...(estadoLimpio === 'listo' ? { listoEn: ahora } : {}),
+          ...(estadoLimpio === 'en_preparacion'
+            ? { inicioPreparacionEn: ahora }
+            : {}),
+          ...(estadoLimpio === 'listo'
+            ? { listoEn: ahora }
+            : {}),
         },
       }),
     ]);
+
 
     // 🛠️ EMITIR EVENTO AL POS Y A CAJAS
     const io = req.app.get('io');
@@ -290,6 +360,14 @@ export const cambiarEstadoCocina = async (req: Request, res: Response): Promise<
         });
       }
     }
+    // AVISAR A LOS CLIENTES QUE EL ESTADO CAMBIÓ
+    emitEvent('pedido:estado_actualizado', {
+      ordenId: ordenId.trim(),
+      estado:
+        estadoLimpio === 'listo' ? 'preparado' : estadoLimpio,
+      listo: estadoLimpio === 'listo',
+    });
+
 
     res.status(200).json({
       message: 'Estado de comanda actualizado en cocina',

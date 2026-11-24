@@ -394,9 +394,47 @@ export const cancelarOrden = async (req: Request, res: Response): Promise<void> 
         },
       });
 
+
       if (!orden) throw new Error('La orden no existe');
       if (orden.estado === 'pagado') throw new Error('No se puede cancelar una orden que ya fue pagada');
       if (orden.estado === 'cancelado') throw new Error('Esta orden ya se encuentra cancelada');
+      if (!orden) {
+        throw new Error('La orden no existe');
+      }
+
+      // Validaciones exclusivas para clientes
+      if (req.usuario?.rol?.toLowerCase() === 'cliente') {
+        // Verificar que el pedido pertenezca al cliente
+        if (orden.usuarioId !== usuarioId) {
+          throw new Error('No tienes permiso para cancelar este pedido');
+        }
+
+        // Solo permitir cancelar pedidos recibidos
+        if (orden.estado !== 'pendiente') {
+          throw new Error(
+            'Solo puedes cancelar pedidos que estén en estado Recibido'
+          );
+        }
+
+        // Validar límite estricto de 1 minuto (60 segundos) desde su creación
+        const segundosTranscurridos =
+          (Date.now() - new Date(orden.creadoEn).getTime()) / 1000;
+
+        if (segundosTranscurridos > 60) {
+          throw new Error(
+            'El tiempo límite de 1 minuto para cancelar este pedido ha expirado'
+          );
+        }
+      }
+
+      if (orden.estado === 'pagado') {
+        throw new Error('No se puede cancelar una orden que ya fue pagada');
+      }
+
+      if (orden.estado === 'cancelado') {
+        throw new Error('Esta orden ya se encuentra cancelada');
+      }
+
 
       for (const detalle of orden.detalles) {
         for (const receta of detalle.producto.recetas) {
@@ -461,7 +499,8 @@ export const cancelarOrden = async (req: Request, res: Response): Promise<void> 
   }
 };
 
-// 5. OBTENER HISTORIAL
+// 5. OBTENER HISTORIAL Y ESTADO EN VIVO DE ÓRDENES DEL CLIENTE MÓVIL
+
 export const obtenerMisOrdenes = async (req: Request, res: Response): Promise<void> => {
   try {
     const r = req as any;
