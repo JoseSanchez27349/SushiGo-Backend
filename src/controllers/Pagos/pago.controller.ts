@@ -118,17 +118,31 @@ export const registrarPagoOrden = async (
     const cambio = Math.max(0, Number((montoAbonado - totalOrden).toFixed(2)));
     const ahora = new Date();
 
-    // Buscar el turno abierto del usuario que cobra (o del mesero que abrió la orden)
-    const cobradorId = req.user?.id || orden.usuarioId || null;
-    const turnoActivo = cobradorId
-      ? await prisma.turnoCaja.findFirst({
-          where: {
-            usuarioId: cobradorId,
-            estado: 'abierto',
-          },
-          orderBy: { abiertoEn: 'desc' },
-        })
-      : null;
+    // 🛠️ LÓGICA DE TURNO ROBUSTA Y CORREGIDA
+    let cobradorId = req.user?.id || null;
+    let turnoActivo = null;
+
+    // Paso 1: Intentar con el usuario que hace el cobro (token)
+    if (cobradorId) {
+      turnoActivo = await prisma.turnoCaja.findFirst({
+        where: { usuarioId: cobradorId, estado: 'abierto' },
+        orderBy: { abiertoEn: 'desc' },
+      });
+    }
+
+    // Paso 2: Si no tiene turno, usar el del mesero de la orden
+    if (!turnoActivo && orden.meseroId) {
+      turnoActivo = await prisma.turnoCaja.findFirst({
+        where: { usuarioId: orden.meseroId, estado: 'abierto' },
+        orderBy: { abiertoEn: 'desc' },
+      });
+      if (turnoActivo) cobradorId = orden.meseroId; // Actualizamos para que el pago quede a nombre del mesero
+    }
+
+    // 🚨 Si no encontramos NINGÚN turno, lanzamos alerta en consola
+    if (!turnoActivo) {
+      console.warn(`[ALERTA] Se cobró la orden #${orden.folio} pero no se encontró un turno abierto ni para el cobrador ni para el mesero ${orden.meseroId}.`);
+    }
 
     await prisma.$transaction(async (tx) => {
       // 1. Registrar cada línea de pago vinculada al turno activo
@@ -229,7 +243,8 @@ export const solicitarReimpresion = async (req: Request, res: Response): Promise
   try {
     const ordenId = req.params.ordenId;
     const { tipoTicket } = req.body; // 'precuenta' | 'ticket_final' | 'cocina'
-    const usuarioSolicitanteId = req.usuario?.id;
+    // En algunos middlewares se usa `req.user`, en otros `req.usuario`. Aseguramos ambos.
+    const usuarioSolicitanteId = (req as any).usuario?.id || (req as any).user?.id;
 
     if (typeof ordenId !== 'string' || !ordenId.trim()) {
       res.status(400).json({ message: 'El ID de la orden es requerido' });
